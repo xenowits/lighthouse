@@ -28,6 +28,7 @@ mod partial_beacon_state;
 pub mod reconstruct;
 mod state_cache;
 mod state_diff;
+pub mod updated_once;
 pub mod validator_pubkey_cache;
 
 pub mod iter;

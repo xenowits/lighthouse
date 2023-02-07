@@ -15,8 +15,7 @@ const NUM_FIELDS: usize = 8;
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, Default)]
 #[serde(deny_unknown_fields)]
 pub struct Validator {
-    #[serde(flatten)]
-    pub immutable: Arc<ValidatorImmutable>,
+    pub pubkey: Arc<PublicKeyBytes>,
     #[serde(flatten)]
     pub mutable: ValidatorMutable,
 }
@@ -32,14 +31,6 @@ pub struct ValidatorMutable {
     pub activation_epoch: Epoch,
     pub exit_epoch: Epoch,
     pub withdrawable_epoch: Epoch,
-}
-
-/// The immutable fields of a validator, behind an `Arc` to enable sharing.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
-pub struct ValidatorImmutable {
-    pub pubkey: PublicKeyBytes,
-    pub withdrawal_credentials: Hash256,
 }
 
 pub trait ValidatorTrait:
@@ -62,15 +53,12 @@ impl ValidatorTrait for ValidatorMutable {}
 
 impl Validator {
     pub fn pubkey(&self) -> &PublicKeyBytes {
-        &self.immutable.pubkey
+        &self.pubkey
     }
 
     /// Replace the validator's pubkey (should only be used during testing).
     pub fn replace_pubkey(&mut self, pubkey: PublicKeyBytes) {
-        self.immutable = Arc::new(ValidatorImmutable {
-            pubkey,
-            withdrawal_credentials: self.immutable.withdrawal_credentials,
-        });
+        self.pubkey = Arc::new(pubkey);
     }
 
     #[inline]

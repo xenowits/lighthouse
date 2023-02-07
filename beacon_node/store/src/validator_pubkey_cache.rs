@@ -1,3 +1,4 @@
+use crate::updated_once::UpdatedOnceValidator;
 use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem, StoreOp};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
@@ -24,7 +25,7 @@ use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, ValidatorI
 pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
-    validators: Vec<Arc<ValidatorImmutable>>,
+    validators: Vec<UpdatedOnceValidator>,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -189,7 +190,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
 #[derive(Encode, Decode)]
 struct DatabaseValidator {
     pubkey: SmallVec<[u8; PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN]>,
-    withdrawal_credentials: Hash256,
+    updated_once: UpdatedOnceValidator,
 }
 
 impl StoreItem for DatabaseValidator {
