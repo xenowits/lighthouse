@@ -1260,11 +1260,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         state_root: &Hash256,
     ) -> Result<(BeaconState<E>, Hash256), Error> {
         let pubkey_cache = self.immutable_validators.read();
-        let immutable_validators = |i: usize| pubkey_cache.get_validator(i);
+        let validator_pubkeys = |i: usize| pubkey_cache.get_validator_pubkey(i);
         let mut state = get_full_state(
             &self.hot_db,
             state_root,
-            immutable_validators,
+            validator_pubkeys,
             &self.config,
             &self.spec,
         )?
@@ -1379,9 +1379,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
 
         let pubkey_cache = self.immutable_validators.read();
-        let immutable_validators = |i: usize| pubkey_cache.get_validator(i);
+        let memory_validators = |i: usize, effective_balance: u64| {
+            pubkey_cache.get_validator_at_slot(i, effective_balance, slot)
+        };
 
-        partial_state.try_into_full_state(immutable_validators)
+        partial_state.try_into_full_state(memory_validators)
     }
 
     /* FIXME(sproul): backwards compat

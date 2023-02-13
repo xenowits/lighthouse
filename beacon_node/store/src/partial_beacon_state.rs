@@ -50,7 +50,8 @@ where
     pub eth1_deposit_index: u64,
 
     // Registry
-    pub validators: Vec<ValidatorMutable>,
+    // NOTE: we only store the effective balances! everything else is de-duplicated
+    pub validators: Vec<u64>,
     pub balances: VList<u64, T::ValidatorRegistryLimit>,
 
     // Shuffling
@@ -118,7 +119,7 @@ macro_rules! impl_from_state_forgetful {
 
             // Validator registry
             validators: $s.validators.into_iter().map(|validator| {
-                    validator.mutable.clone()
+                    validator.effective_balance()
                 })
                 .collect(),
             balances: $s.balances.clone(),
@@ -297,7 +298,7 @@ impl<T: EthSpec> PartialBeaconState<T> {
 
 /// Implement the conversion from PartialBeaconState -> BeaconState.
 macro_rules! impl_try_into_beacon_state {
-    ($inner:ident, $variant_name:ident, $struct_name:ident, $immutable_validators:ident, [$($extra_fields:ident),*]) => {
+    ($inner:ident, $variant_name:ident, $struct_name:ident, $memory_validators:ident, [$($extra_fields:ident),*]) => {
         BeaconState::$variant_name($struct_name {
             // Versioning
             genesis_time: $inner.genesis_time,
@@ -317,15 +318,8 @@ macro_rules! impl_try_into_beacon_state {
             eth1_deposit_index: $inner.eth1_deposit_index,
 
             // Validator registry
-            validators: process_results($inner.validators.into_iter().enumerate().map(|(i, mutable)| {
-                $immutable_validators(i)
-                    .ok_or(Error::MissingImmutableValidator(i))
-                    .map(move |immutable| {
-                        Validator {
-                            immutable,
-                            mutable
-                        }
-                    })
+            validators: process_results($inner.validators.into_iter().enumerate().map(|(i, effective_balance)| {
+                $memory_validators(i, effective_balance)
             }), |iter| VList::try_from_iter(iter))??,
             balances: $inner.balances,
 
@@ -360,23 +354,23 @@ fn unpack_field<T>(x: Option<T>) -> Result<T, Error> {
 }
 
 impl<E: EthSpec> PartialBeaconState<E> {
-    pub fn try_into_full_state<F>(self, immutable_validators: F) -> Result<BeaconState<E>, Error>
+    pub fn try_into_full_state<F>(self, memory_validators: F) -> Result<BeaconState<E>, Error>
     where
-        F: Fn(usize) -> Option<Arc<ValidatorImmutable>>,
+        F: Fn(usize, u64) -> Result<Validator, Error>,
     {
         let state = match self {
             PartialBeaconState::Base(inner) => impl_try_into_beacon_state!(
                 inner,
                 Base,
                 BeaconStateBase,
-                immutable_validators,
+                memory_validators,
                 [previous_epoch_attestations, current_epoch_attestations]
             ),
             PartialBeaconState::Altair(inner) => impl_try_into_beacon_state!(
                 inner,
                 Altair,
                 BeaconStateAltair,
-                immutable_validators,
+                memory_validators,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,
@@ -389,7 +383,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
                 inner,
                 Merge,
                 BeaconStateMerge,
-                immutable_validators,
+                memory_validators,
                 [
                     previous_epoch_participation,
                     current_epoch_participation,

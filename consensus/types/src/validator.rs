@@ -12,7 +12,7 @@ const NUM_FIELDS: usize = 8;
 
 /// Information about a `BeaconChain` validator.
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom, Default)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
 #[serde(deny_unknown_fields)]
 pub struct Validator {
     pub pubkey: Arc<PublicKeyBytes>,
@@ -24,6 +24,7 @@ pub struct Validator {
 #[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
 pub struct ValidatorMutable {
+    pub withdrawal_credentials: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
     pub effective_balance: u64,
     pub slashed: bool,
@@ -63,7 +64,7 @@ impl Validator {
 
     #[inline]
     pub fn withdrawal_credentials(&self) -> Hash256 {
-        self.immutable.withdrawal_credentials
+        self.mutable.withdrawal_credentials
     }
 
     #[inline]
@@ -173,19 +174,11 @@ impl Validator {
     }
 }
 
-/// Yields a "default" `Validator`. Primarily used for testing.
-impl Default for ValidatorImmutable {
-    fn default() -> Self {
-        ValidatorImmutable {
-            pubkey: PublicKeyBytes::empty(),
-            withdrawal_credentials: Hash256::default(),
-        }
-    }
-}
-
+/*
 impl Default for ValidatorMutable {
     fn default() -> Self {
         ValidatorMutable {
+            withdrawal_credentials: Hash256::zero(),
             activation_eligibility_epoch: Epoch::from(std::u64::MAX),
             activation_epoch: Epoch::from(std::u64::MAX),
             exit_epoch: Epoch::from(std::u64::MAX),
@@ -195,6 +188,7 @@ impl Default for ValidatorMutable {
         }
     }
 }
+*/
 
 impl TreeHash for Validator {
     fn tree_hash_type() -> tree_hash::TreeHashType {

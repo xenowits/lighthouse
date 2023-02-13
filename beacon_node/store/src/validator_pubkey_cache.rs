@@ -1,4 +1,4 @@
-use crate::updated_once::UpdatedOnceValidator;
+use crate::updated_once::{MemoryValidator, UpdatedOnceValidator};
 use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem, StoreOp};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, ValidatorImmutable};
+use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, Slot, Validator};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -25,7 +25,7 @@ use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, ValidatorI
 pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
-    validators: Vec<UpdatedOnceValidator>,
+    validators: Vec<MemoryValidator>,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -71,11 +71,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             if let Some(db_validator) =
                 store.get_item(&DatabaseValidator::key_for_index(validator_index))?
             {
-                let (pubkey, validator) =
-                    DatabaseValidator::into_immutable_validator(&db_validator)?;
+                let (pubkey, validator) = DatabaseValidator::into_memory_validator(db_validator)?;
                 pubkeys.push(pubkey);
-                indices.insert(validator.pubkey, validator_index);
-                validators.push(Arc::new(validator));
+                indices.insert(*validator.pubkey, validator_index);
+                validators.push(validator);
             } else {
                 break;
             }
@@ -99,11 +98,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         state: &BeaconState<E>,
     ) -> Result<Vec<StoreOp<'static, E>>, Error> {
         if state.validators().len() > self.validators.len() {
-            self.import(
+            self.import_new(
                 state
                     .validators()
                     .iter_from(self.pubkeys.len())?
-                    .map(|v| v.immutable.clone()),
+                    .map(|v| v.pubkey.clone()),
             )
         } else {
             Ok(vec![])
@@ -111,51 +110,72 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
     }
 
     /// Adds zero or more validators to `self`.
-    fn import<I>(&mut self, validator_keys: I) -> Result<Vec<StoreOp<'static, E>>, Error>
+    fn import_new<I>(&mut self, validator_keys: I) -> Result<Vec<StoreOp<'static, E>>, Error>
     where
-        I: Iterator<Item = Arc<ValidatorImmutable>> + ExactSizeIterator,
+        I: Iterator<Item = Arc<PublicKeyBytes>> + ExactSizeIterator,
     {
         self.validators.reserve(validator_keys.len());
         self.pubkeys.reserve(validator_keys.len());
         self.indices.reserve(validator_keys.len());
 
         let mut store_ops = Vec::with_capacity(validator_keys.len());
-        for validator in validator_keys {
+        for pubkey_bytes in validator_keys {
             let i = self.pubkeys.len();
 
-            if self.indices.contains_key(&validator.pubkey) {
+            if self.indices.contains_key(&pubkey_bytes) {
                 return Err(Error::DuplicateValidatorPublicKey);
             }
 
-            let pubkey = (&validator.pubkey)
-                .try_into()
+            let pubkey = pubkey_bytes
+                .decompress()
                 .map_err(Error::InvalidValidatorPubkeyBytes)?;
 
             // Stage the new validator key for writing to disk.
             // It will be committed atomically when the block that introduced it is written to disk.
             // Notably it is NOT written while the write lock on the cache is held.
             // See: https://github.com/sigp/lighthouse/issues/2327
+            let db_validator = DatabaseValidator::new_unfinalized_validator(&pubkey);
             store_ops.push(StoreOp::KeyValueOp(
-                DatabaseValidator::from_immutable_validator(&pubkey, &validator)
-                    .as_kv_store_op(DatabaseValidator::key_for_index(i))?,
+                db_validator.as_kv_store_op(DatabaseValidator::key_for_index(i))?,
             ));
 
             self.pubkeys.push(pubkey);
-            self.indices.insert(validator.pubkey, i);
-            self.validators.push(validator);
+            self.indices.insert(*pubkey_bytes, i);
+
+            let memory_validator = MemoryValidator {
+                pubkey: pubkey_bytes,
+                updated_once: db_validator.updated_once,
+            };
+            self.validators.push(memory_validator);
         }
 
         Ok(store_ops)
     }
+
+    // FIXME(sproul): keep going here
+    // pub fn update
 
     /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
         self.pubkeys.get(i)
     }
 
-    /// Get the immutable validator with index `i`.
-    pub fn get_validator(&self, i: usize) -> Option<Arc<ValidatorImmutable>> {
-        self.validators.get(i).cloned()
+    /// Get the immutable pubkey of the validator with index `i`.
+    pub fn get_validator_pubkey(&self, i: usize) -> Option<Arc<PublicKeyBytes>> {
+        self.validators.get(i).map(|val| val.pubkey.clone())
+    }
+
+    pub fn get_validator_at_slot(
+        &self,
+        i: usize,
+        effective_balance: u64,
+        slot: Slot,
+    ) -> Result<Validator, Error> {
+        self.validators
+            .get(i)
+            .ok_or(Error::MissingValidator(i))?
+            .into_validator(effective_balance, slot)
+            .map_err(Into::into)
     }
 
     /// Get the `PublicKey` for a validator with `PublicKeyBytes`.
@@ -165,7 +185,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
 
     /// Get the public key (in bytes form) for a validator with index `i`.
     pub fn get_pubkey_bytes(&self, i: usize) -> Option<&PublicKeyBytes> {
-        self.validators.get(i).map(|validator| &validator.pubkey)
+        self.validators.get(i).map(|validator| &*validator.pubkey)
     }
 
     /// Get the index of a validator with `pubkey`.
@@ -212,24 +232,23 @@ impl DatabaseValidator {
         Hash256::from_low_u64_be(index as u64)
     }
 
-    fn from_immutable_validator(pubkey: &PublicKey, validator: &ValidatorImmutable) -> Self {
+    fn new_unfinalized_validator(pubkey: &PublicKey) -> Self {
         DatabaseValidator {
             pubkey: pubkey.serialize_uncompressed().into(),
-            withdrawal_credentials: validator.withdrawal_credentials,
+            updated_once: UpdatedOnceValidator::dummy(),
         }
     }
 
-    #[allow(clippy::wrong_self_convention)]
-    fn into_immutable_validator(&self) -> Result<(PublicKey, ValidatorImmutable), Error> {
+    fn into_memory_validator(self) -> Result<(PublicKey, MemoryValidator), Error> {
         let pubkey = PublicKey::deserialize_uncompressed(&self.pubkey)
             .map_err(Error::InvalidValidatorPubkeyBytes)?;
-        let pubkey_bytes = pubkey.compress();
-        let withdrawal_credentials = self.withdrawal_credentials;
+        let pubkey_bytes = Arc::new(pubkey.compress());
+        let updated_once = self.updated_once;
         Ok((
             pubkey,
-            ValidatorImmutable {
+            MemoryValidator {
                 pubkey: pubkey_bytes,
-                withdrawal_credentials,
+                updated_once,
             },
         ))
     }

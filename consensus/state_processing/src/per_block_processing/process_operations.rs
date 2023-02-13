@@ -357,11 +357,9 @@ pub fn process_deposit<T: EthSpec>(
 
         // Create a new validator.
         let validator = Validator {
-            immutable: Arc::new(ValidatorImmutable {
-                pubkey: deposit.data.pubkey,
-                withdrawal_credentials: deposit.data.withdrawal_credentials,
-            }),
+            pubkey: Arc::new(deposit.data.pubkey),
             mutable: ValidatorMutable {
+                withdrawal_credentials: deposit.data.withdrawal_credentials,
                 activation_eligibility_epoch: spec.far_future_epoch,
                 activation_epoch: spec.far_future_epoch,
                 exit_epoch: spec.far_future_epoch,

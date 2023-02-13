@@ -1,6 +1,7 @@
 use crate::chunked_vector::ChunkError;
 use crate::config::StoreConfigError;
 use crate::hot_cold_store::HotColdDBError;
+use crate::updated_once::UpdatedOnceError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
 use types::{milhouse, BeaconStateError, Hash256, Slot};
@@ -60,12 +61,14 @@ pub enum Error {
     ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
     MissingImmutableValidator(usize),
+    MissingValidator(usize),
     V9MigrationFailure(Hash256),
     ValidatorPubkeyCacheError(String),
     DuplicateValidatorPublicKey,
     InvalidValidatorPubkeyBytes(bls::Error),
     ValidatorPubkeyCacheUninitialized,
     InvalidKey,
+    UpdatedOnce(UpdatedOnceError),
 }
 
 pub trait HandleUnavailable<T> {
@@ -127,6 +130,12 @@ impl From<milhouse::Error> for Error {
 impl From<BlockReplayError> for Error {
     fn from(e: BlockReplayError) -> Error {
         Error::BlockReplayError(e)
+    }
+}
+
+impl From<UpdatedOnceError> for Error {
+    fn from(e: UpdatedOnceError) -> Error {
+        Error::UpdatedOnce(e)
     }
 }
 

@@ -2363,8 +2363,7 @@ dependencies = [
 [[package]]
 name = "ethereum_ssz"
 version = "0.5.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8012d097c5b4f4915c84c672a397a2ca4124e1900737f1393b3ba0c87d8fa489"
+source = "git+https://github.com/sigp/ethereum_ssz?branch=enum-behaviour-and-capella#001edfbbd1bf579cfe9d4db9563591bf9a4270be"
 dependencies = [
  "ethereum-types 0.14.1",
  "itertools",

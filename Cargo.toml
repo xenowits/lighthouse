@@ -88,6 +88,7 @@ resolver = "2"
 warp = { git = "https://github.com/macladson/warp", rev="7e75acc368229a46a236a8c991bf251fe7fe50ef" }
 # FIXME(sproul): remove
 ssz_types = { git = "https://github.com/sigp/ssz_types", branch = "abstract-serde" }
+ethereum_ssz = { git = "https://github.com/sigp/ethereum_ssz", branch = "enum-behaviour-and-capella" }
 
 [profile.maxperf]
 inherits = "release"

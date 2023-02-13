@@ -3,7 +3,7 @@ use ssz::Encode;
 use ssz_derive::Encode;
 use std::io::{Read, Write};
 use std::sync::Arc;
-use types::{CompactBeaconState, ValidatorImmutable};
+use types::{CompactBeaconState, PublicKeyBytes};
 use zstd::{Decoder, Encoder};
 
 pub fn store_full_state<E: EthSpec>(
@@ -41,7 +41,7 @@ pub fn get_full_state<KV: KeyValueStore<E>, E: EthSpec, F>(
     spec: &ChainSpec,
 ) -> Result<Option<BeaconState<E>>, Error>
 where
-    F: Fn(usize) -> Option<Arc<ValidatorImmutable>>,
+    F: Fn(usize) -> Option<Arc<PublicKeyBytes>>,
 {
     let total_timer = metrics::start_timer(&metrics::BEACON_STATE_READ_TIMES);
 
@@ -98,7 +98,7 @@ impl<T: EthSpec> StorageContainer<T> {
 
     fn into_beacon_state<F>(self, immutable_validators: F) -> Result<BeaconState<T>, Error>
     where
-        F: Fn(usize) -> Option<Arc<ValidatorImmutable>>,
+        F: Fn(usize) -> Option<Arc<PublicKeyBytes>>,
     {
         let state = self.state.try_into_full_state(immutable_validators)?;
         Ok(state)

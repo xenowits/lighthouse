@@ -1,6 +1,6 @@
 use crate::{
     BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError as Error, BeaconStateMerge,
-    EthSpec, VList, Validator, ValidatorImmutable, ValidatorMutable,
+    EthSpec, PublicKeyBytes, VList, Validator, ValidatorMutable,
 };
 use itertools::process_results;
 use std::sync::Arc;
@@ -85,9 +85,9 @@ macro_rules! compact_to_full {
             validators: process_results($inner.validators.into_iter().enumerate().map(|(i, mutable)| {
                 $immutable_validators(i)
                     .ok_or(Error::MissingImmutableValidator(i))
-                    .map(move |immutable| {
+                    .map(move |pubkey| {
                         Validator {
-                            immutable,
+                            pubkey,
                             mutable: mutable.clone(),
                         }
                     })
@@ -164,7 +164,7 @@ impl<E: EthSpec> BeaconState<E> {
 impl<E: EthSpec> CompactBeaconState<E> {
     pub fn try_into_full_state<F>(self, immutable_validators: F) -> Result<BeaconState<E>, Error>
     where
-        F: Fn(usize) -> Option<Arc<ValidatorImmutable>>,
+        F: Fn(usize) -> Option<Arc<PublicKeyBytes>>,
     {
         let state = match self {
             BeaconState::Base(inner) => compact_to_full!(
