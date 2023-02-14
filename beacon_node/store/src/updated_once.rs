@@ -21,6 +21,15 @@ pub enum UpdatedOnceError {
         lower: Slot,
         upper: Slot,
     },
+    InvalidBound {
+        lower: Slot,
+        upper: Slot,
+    },
+    OneValueKnownConflict {
+        slot: Slot,
+        first_seen: Slot,
+        last_seen: Slot,
+    },
 }
 
 /// A bound represents possibly partial knowledge of the point in time at which an
@@ -43,12 +52,29 @@ pub struct ExactBound {
 
 /// The update slot for the field is known to be:
 ///
-/// - `update_slot >= lower` and
-/// - `update_slot < upper`
+/// - `update_slot > lower` and
+/// - `update_slot <= upper`
 ///
-/// This means that the value is known for states with `state.slot < lower`, where it *must*
-/// be the initial value, and for states with `state.slot >= upper`, where it *must* be the
-/// updated value.
+/// This means that the value is known for states with `slot <= lower`, where it *must*
+/// be the initial value, and for states with `slot >= upper`, where it *must* be the
+/// updated value. This follows from case-analysis on this expression:
+///
+///  value = if slot >= update_slot { updated } else { initial }
+///
+/// For the first case we have:
+///
+///   slot <= lower /\ update_slot > lower -->
+///   slot <= lower /\ lower < update_slot -->
+///   slot < updated -->
+///   !(slot >= update_slot) -->
+///   value = initial
+///
+/// For the second case we have:
+///
+///   slot >= upper /\ update_slot <= upper -->
+///   slot >= upper /\ upper >= update_slot -->
+///   slot >= update_slot -->
+///   value = updated
 #[derive(Debug, Encode, Decode, Clone, Copy)]
 pub struct BetweenBound {
     pub lower: Slot,
@@ -138,6 +164,18 @@ impl MemoryValidator {
     }
 }
 
+impl Bound {
+    fn new(lower: Slot, upper: Slot) -> Result<Self, UpdatedOnceError> {
+        if lower + 1 == upper {
+            Ok(Bound::Exact(ExactBound { update_slot: upper }))
+        } else if lower < upper {
+            Ok(Bound::Between(BoundBetween { lower, upper }))
+        } else {
+            Err(UpdatedOnceError::InvalidBound { lower, upper })
+        }
+    }
+}
+
 impl<T: Encode + Decode + PartialEq> UpdatedOnce<T> {
     pub fn dummy() -> Self
     where
@@ -215,7 +253,7 @@ impl<T: Encode + Decode + PartialEq> UpdatedOnce<T> {
                     }
                 }
                 Bound::Between(BetweenBound { lower, upper }) => {
-                    if slot < lower {
+                    if slot <= lower {
                         Ok(*initial)
                     } else if slot >= upper {
                         Ok(*updated)
@@ -224,6 +262,51 @@ impl<T: Encode + Decode + PartialEq> UpdatedOnce<T> {
                     }
                 }
             },
+        }
+    }
+
+    pub fn update(&mut self, slot: Slot, new_value: T) -> Result<bool, UpdatedOnceError>
+    where
+        T: Copy,
+    {
+        match self {
+            UpdatedOnce::OneValueKnown(OneValueKnown {
+                value,
+                first_seen,
+                last_seen,
+            }) => {
+                if value == new_value {
+                    // No new information. No-op.
+                    Ok(false)
+                } else if slot > last_seen {
+                    // Learnt the updated value and have bounds for the update slot.
+                    // We know the lower bound for the update slot is `> last_seen` because
+                    // it still had the initial value at `last_seen`.
+                    *self = UpdatedOnce::TwoValuesKnown(TwoValuesKnown {
+                        initial: value,
+                        updated: new_value,
+                        bound: Bound::new(last_seen, slot),
+                    });
+                    Ok(true)
+                } else if slot < first_seen {
+                    // Learnt the initial value and bounds.
+                    // We know the update slot must be greater than `slot` because the field still
+                    // has the initial value at `slot`. Similarly the update slot must be <= the
+                    // `first_seen` value because we know it had updated by that point.
+                    *self = UpdatedOnce::TwoValuesKnown(TwoValuesKnown {
+                        initial: new_value,
+                        updated: value,
+                        bound: Bound::new(slot, first_seen),
+                    });
+                    Ok(true)
+                } else {
+                    Err(UpdatedOnceError::OneValueKnownConflict {
+                        slot,
+                        first_seen,
+                        last_seen,
+                    })
+                }
+            }
         }
     }
 }
@@ -291,6 +374,11 @@ impl UpdatedOnceValidator {
             withdrawable_epoch,
         })
     }
+
+    /// Update our knowledge of `self` at `slot` using data from `validator`.
+    ///
+    /// The `slot` *must* be a finalized or the update will corrupt the store.
+    pub fn update_knowledge(&mut self, slot: Slot, validator: &Validator) -> Result<bool, Error> {}
 
     /// The dummy value is used for validators that do not yet exist in the finalized database.
     pub fn dummy() -> Self {

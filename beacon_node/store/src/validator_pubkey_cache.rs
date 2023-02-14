@@ -26,6 +26,9 @@ pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
     validators: Vec<MemoryValidator>,
+    /// Vec of validator indices (positions in `self.validators`) that have been updated and are
+    /// awaiting being flushed to disk.
+    dirty_indices: Vec<usize>,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -152,8 +155,12 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         Ok(store_ops)
     }
 
-    // FIXME(sproul): keep going here
-    // pub fn update
+    pub fn update_for_finalized_state(
+        &mut self,
+        finalized_state: &BeaconState<E>,
+    ) -> Result<(), Error> {
+        // FIXME(sproul): keep going here
+    }
 
     /// Get the public key for a validator with index `i`.
     pub fn get(&self, i: usize) -> Option<&PublicKey> {
