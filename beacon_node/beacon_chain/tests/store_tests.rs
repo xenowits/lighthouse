@@ -2206,7 +2206,7 @@ async fn weak_subjectivity_sync() {
     assert_eq!(store.get_anchor_slot(), Some(wss_slot));
 
     // Reconstruct states.
-    store.clone().reconstruct_historic_states().unwrap();
+    store.clone().reconstruct_historic_states(None).unwrap();
     assert_eq!(store.get_anchor_slot(), None);
 }
 

@@ -32,7 +32,7 @@ use milhouse::Diff;
 use parking_lot::{Mutex, RwLock};
 use safe_arith::SafeArith;
 use serde_derive::{Deserialize, Serialize};
-use slog::{debug, error, info, trace, warn, Logger};
+use slog::{debug, error, info, warn, Logger};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
 use state_processing::{
@@ -80,7 +80,7 @@ pub struct HotColdDB<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     /// Chain spec.
     pub(crate) spec: ChainSpec,
     /// Logger.
-    pub(crate) log: Logger,
+    pub log: Logger,
     /// Mere vessel for E.
     _phantom: PhantomData<E>,
 }
@@ -1293,11 +1293,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
             return Ok(());
         }
 
-        trace!(
+        debug!(
             self.log,
             "Creating restore point";
             "slot" => state.slot(),
-            "state_root" => format!("{:?}", state_root)
+            "state_root" => ?state_root
         );
 
         // 1. Convert to PartialBeaconState and store that in the DB.
@@ -2041,6 +2041,11 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // have been stored in memory, or maybe as a diff.
     store.store_full_state(&finalized_state_root, finalized_state)?;
 
+    // Compute current latest restore point slot prior to the migration. This is used by the
+    // in-memory validator cache to update bounds.
+    let latest_restore_point_slot = (current_split_slot - 1) / store.config.slots_per_restore_point
+        * store.config.slots_per_restore_point;
+
     // Copy all of the states between the new finalized state and the split slot, from the hot DB to
     // the cold DB.
     let mut hot_db_ops: Vec<StoreOp<E>> = Vec::new();
@@ -2063,14 +2068,36 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 .get_hot_state(&state_root)?
                 .ok_or(HotColdDBError::MissingStateToFreeze(state_root))?;
 
-            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
-        }
+            let t = std::time::Instant::now();
+            let (num_validators_updated, num_fields_updated) =
+                store
+                    .immutable_validators
+                    .write()
+                    .update_for_finalized_state(&state, latest_restore_point_slot, &store.spec)?;
+            debug!(
+                store.log,
+                "Updated in-memory validator store";
+                "slot" => slot,
+                "validators_updated" => num_validators_updated,
+                "fields_updated" => num_fields_updated,
+                "time_taken_ms" => t.elapsed().as_millis()
+            );
+            /* FIXME(sproul): delete
+            debug!(
+                store.log,
+                "Full validator store";
+                "validator_store" => format!("{:#?}", &*store.immutable_validators.read().validators)
+            );
+            */
 
-        // Store a pointer from this state root to its slot, so we can later reconstruct states
-        // from their state root alone.
-        let cold_state_summary = ColdStateSummary { slot };
-        let op = cold_state_summary.as_kv_store_op(state_root)?;
-        cold_db_ops.push(op);
+            store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
+        } else {
+            // Store a pointer from this state root to its slot, so we can later reconstruct states
+            // from their state root alone.
+            let cold_state_summary = ColdStateSummary { slot };
+            let op = cold_state_summary.as_kv_store_op(state_root)?;
+            cold_db_ops.push(op);
+        }
 
         // There are data dependencies between calls to `store_cold_state()` that prevent us from
         // doing one big call to `store.cold_db.do_atomically()` at end of the loop.
@@ -2109,6 +2136,13 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
     // at any point below but it may happen that some states won't be deleted from the hot database
     // and will remain there forever.  Since dying in these particular few lines should be an
     // exceedingly rare event, this should be an acceptable tradeoff.
+
+    // Apply the pending mutations to the validator store.
+    let validator_store_ops = store
+        .immutable_validators
+        .write()
+        .get_pending_validator_ops()?;
+    store.hot_db.do_atomically(validator_store_ops)?;
 
     // Flush to disk all the states that have just been migrated to the cold store.
     store.cold_db.do_atomically(cold_db_block_ops)?;

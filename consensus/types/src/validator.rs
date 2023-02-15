@@ -57,6 +57,10 @@ impl Validator {
         &self.pubkey
     }
 
+    pub fn pubkey_clone(&self) -> Arc<PublicKeyBytes> {
+        self.pubkey.clone()
+    }
+
     /// Replace the validator's pubkey (should only be used during testing).
     pub fn replace_pubkey(&mut self, pubkey: PublicKeyBytes) {
         self.pubkey = Arc::new(pubkey);

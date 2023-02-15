@@ -1,14 +1,13 @@
 use crate::updated_once::{MemoryValidator, UpdatedOnceValidator};
-use crate::{DBColumn, Error, HotColdDB, ItemStore, StoreItem, StoreOp};
+use crate::{DBColumn, Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem, StoreOp};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
-use std::collections::HashMap;
-use std::convert::TryInto;
+use std::collections::{HashMap, HashSet};
 use std::marker::PhantomData;
 use std::sync::Arc;
-use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, Slot, Validator};
+use types::{BeaconState, ChainSpec, EthSpec, Hash256, PublicKey, PublicKeyBytes, Slot, Validator};
 
 /// Provides a mapping of `validator_index -> validator_publickey`.
 ///
@@ -25,10 +24,10 @@ use types::{BeaconState, EthSpec, Hash256, PublicKey, PublicKeyBytes, Slot, Vali
 pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
-    validators: Vec<MemoryValidator>,
-    /// Vec of validator indices (positions in `self.validators`) that have been updated and are
+    pub(crate) validators: Vec<MemoryValidator>,
+    /// Validator indices (positions in `self.validators`) that have been updated and are
     /// awaiting being flushed to disk.
-    dirty_indices: Vec<usize>,
+    dirty_indices: HashSet<usize>,
     _phantom: PhantomData<(E, Hot, Cold)>,
 }
 
@@ -41,6 +40,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> Default
             pubkeys: vec![],
             indices: HashMap::new(),
             validators: vec![],
+            dirty_indices: HashSet::new(),
             _phantom: PhantomData,
         }
     }
@@ -55,6 +55,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             pubkeys: vec![],
             indices: HashMap::new(),
             validators: vec![],
+            dirty_indices: HashSet::new(),
             _phantom: PhantomData,
         };
 
@@ -69,6 +70,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
         let mut pubkeys = vec![];
         let mut indices = HashMap::new();
         let mut validators = vec![];
+        let dirty_indices = HashSet::new();
 
         for validator_index in 0.. {
             if let Some(db_validator) =
@@ -87,6 +89,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             pubkeys,
             indices,
             validators,
+            dirty_indices,
             _phantom: PhantomData,
         })
     }
@@ -158,8 +161,69 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
     pub fn update_for_finalized_state(
         &mut self,
         finalized_state: &BeaconState<E>,
-    ) -> Result<(), Error> {
-        // FIXME(sproul): keep going here
+        latest_restore_point_slot: Slot,
+        spec: &ChainSpec,
+    ) -> Result<(usize, usize), Error> {
+        let slot = finalized_state.slot();
+
+        let mut num_validators_updated = 0;
+        let mut num_fields_updated = 0;
+
+        for (i, validator) in finalized_state.validators().iter().enumerate() {
+            if let Some(memory_validator) = self.validators.get_mut(i) {
+                // Dummy validator? Override it.
+                if memory_validator.updated_once.is_dummy() {
+                    memory_validator.updated_once =
+                        UpdatedOnceValidator::from_validator(validator, slot, spec)?;
+                    num_validators_updated += 1;
+                    self.dirty_indices.insert(i);
+                    continue;
+                }
+
+                // Otherwise update the existing validator.
+                let num_updated = memory_validator.updated_once.update_knowledge(
+                    validator,
+                    slot,
+                    latest_restore_point_slot,
+                )?;
+
+                if num_updated > 0 {
+                    num_validators_updated += 1;
+                    num_fields_updated += num_updated;
+                    self.dirty_indices.insert(i);
+                }
+            } else {
+                assert_eq!(i, self.validators.len());
+                self.validators.push(MemoryValidator {
+                    pubkey: validator.pubkey_clone(),
+                    updated_once: UpdatedOnceValidator::from_validator(validator, slot, spec)?,
+                });
+                num_validators_updated += 1;
+                self.dirty_indices.insert(i);
+            }
+        }
+
+        Ok((num_validators_updated, num_fields_updated))
+    }
+
+    pub fn get_pending_validator_ops(&mut self) -> Result<Vec<KeyValueStoreOp>, Error> {
+        let mut ops = Vec::with_capacity(self.dirty_indices.len());
+        for &i in &self.dirty_indices {
+            let pubkey = self.get(i).ok_or(Error::MissingValidator(i))?;
+            let updated_once = self
+                .validators
+                .get(i)
+                .ok_or(Error::MissingValidator(i))?
+                .updated_once
+                .clone();
+            let db_validator = DatabaseValidator::new(pubkey, updated_once);
+            ops.push(db_validator.as_kv_store_op(DatabaseValidator::key_for_index(i))?);
+        }
+
+        // Clear dirty indices but retain allocated capacity.
+        self.dirty_indices.clear();
+
+        Ok(ops)
     }
 
     /// Get the public key for a validator with index `i`.
@@ -243,6 +307,13 @@ impl DatabaseValidator {
         DatabaseValidator {
             pubkey: pubkey.serialize_uncompressed().into(),
             updated_once: UpdatedOnceValidator::dummy(),
+        }
+    }
+
+    fn new(pubkey: &PublicKey, validator: UpdatedOnceValidator) -> Self {
+        DatabaseValidator {
+            pubkey: pubkey.serialize_uncompressed().into(),
+            updated_once: validator,
         }
     }
 
