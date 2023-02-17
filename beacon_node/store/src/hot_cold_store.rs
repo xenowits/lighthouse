@@ -2082,13 +2082,6 @@ pub fn migrate_database<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>>(
                 "fields_updated" => num_fields_updated,
                 "time_taken_ms" => t.elapsed().as_millis()
             );
-            /* FIXME(sproul): delete
-            debug!(
-                store.log,
-                "Full validator store";
-                "validator_store" => format!("{:#?}", &*store.immutable_validators.read().validators)
-            );
-            */
 
             store.store_cold_state(&state_root, &state, &mut cold_db_ops)?;
         } else {

@@ -332,7 +332,11 @@ where
         store
             .update_finalized_state(beacon_state_root, beacon_block_root, beacon_state.clone())
             .map_err(|e| format!("Failed to set genesis state as finalized state: {:?}", e))?;
-
+        store
+            .immutable_validators
+            .write()
+            .update_for_finalized_state(&beacon_state, beacon_state.slot(), &self.spec)
+            .map_err(|e| format!("Error updating validator store with genesis state: {e:?}"))?;
         store
             .put_state(&beacon_state_root, &beacon_state)
             .map_err(|e| format!("Failed to store genesis state: {:?}", e))?;
@@ -474,11 +478,25 @@ where
             )
             .map_err(|e| format!("Failed to set checkpoint state as finalized state: {:?}", e))?;
         store
+            .immutable_validators
+            .write()
+            .update_for_finalized_state(&weak_subj_state, weak_subj_state.slot(), &self.spec)
+            .map_err(|e| format!("Error updating validator store with checkpoint state: {e:?}"))?;
+        store
             .put_state(&weak_subj_state_root, &weak_subj_state)
             .map_err(|e| format!("Failed to store weak subjectivity state: {:?}", e))?;
         store
             .put_block(&weak_subj_block_root, weak_subj_block.clone())
             .map_err(|e| format!("Failed to store weak subjectivity block: {:?}", e))?;
+
+        // Stage the writes for the validator store.
+        self.pending_io_batch.extend(
+            store
+                .immutable_validators
+                .write()
+                .get_pending_validator_ops()
+                .map_err(|e| format!("Error writing finalized validators store: {e:?}"))?,
+        );
 
         // Stage the database's metadata fields for atomic storage when `build` is called.
         // This prevents the database from restarting in an inconsistent state if the anchor

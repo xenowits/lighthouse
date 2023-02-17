@@ -204,17 +204,21 @@ impl<T: Encode + Decode + PartialEq> UpdatedOnce<T> {
     pub fn from_field_with_initial_default(
         value: T,
         slot: Slot,
+        is_initial_default: impl Fn(T) -> bool,
         default: T,
-    ) -> Result<Self, UpdatedOnceError> {
-        if value != default {
+    ) -> Result<Self, UpdatedOnceError>
+    where
+        T: Copy,
+    {
+        if is_initial_default(value) {
+            Ok(UpdatedOnce::InitialValueKnown(InitialValueKnown {
+                initial: value,
+            }))
+        } else {
             Ok(UpdatedOnce::TwoValuesKnown(TwoValuesKnown {
                 initial: default,
                 updated: value,
                 bound: Bound::new(Slot::new(0), slot)?,
-            }))
-        } else {
-            Ok(UpdatedOnce::InitialValueKnown(InitialValueKnown {
-                initial: value,
             }))
         }
     }
@@ -401,31 +405,42 @@ impl UpdatedOnceValidator {
     ) -> Result<Self, UpdatedOnceError> {
         let far_future_epoch = spec.far_future_epoch;
 
-        let withdrawal_credentials = UpdatedOnce::OneValueKnown(OneValueKnown {
-            value: validator.withdrawal_credentials(),
-            first_seen: slot,
-            last_seen: slot,
-        });
+        // BLS withdrawal credentials are always initial values.
+        let withdrawal_credentials = if !validator.has_eth1_withdrawal_credential(spec) {
+            UpdatedOnce::InitialValueKnown(InitialValueKnown {
+                initial: validator.withdrawal_credentials(),
+            })
+        } else {
+            UpdatedOnce::OneValueKnown(OneValueKnown {
+                value: validator.withdrawal_credentials(),
+                first_seen: slot,
+                last_seen: slot,
+            })
+        };
         let slashed =
-            UpdatedOnce::from_field_with_initial_default(validator.slashed(), slot, false)?;
+            UpdatedOnce::from_field_with_initial_default(validator.slashed(), slot, |x| !x, false)?;
         let activation_eligibility_epoch = UpdatedOnce::from_field_with_initial_default(
             validator.activation_eligibility_epoch(),
             slot,
+            |epoch| epoch == 0 || epoch == far_future_epoch,
             far_future_epoch,
         )?;
         let activation_epoch = UpdatedOnce::from_field_with_initial_default(
             validator.activation_epoch(),
             slot,
+            |epoch| epoch == 0 || epoch == far_future_epoch,
             far_future_epoch,
         )?;
         let exit_epoch = UpdatedOnce::from_field_with_initial_default(
             validator.exit_epoch(),
             slot,
+            |epoch| epoch == far_future_epoch,
             far_future_epoch,
         )?;
         let withdrawable_epoch = UpdatedOnce::from_field_with_initial_default(
             validator.withdrawable_epoch(),
             slot,
+            |epoch| epoch == far_future_epoch,
             far_future_epoch,
         )?;
 

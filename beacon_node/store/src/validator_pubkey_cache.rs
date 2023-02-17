@@ -1,6 +1,7 @@
 use crate::updated_once::{MemoryValidator, UpdatedOnceValidator};
 use crate::{DBColumn, Error, HotColdDB, ItemStore, KeyValueStoreOp, StoreItem, StoreOp};
 use bls::PUBLIC_KEY_UNCOMPRESSED_BYTES_LEN;
+use slog::debug;
 use smallvec::SmallVec;
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
@@ -24,7 +25,7 @@ use types::{BeaconState, ChainSpec, EthSpec, Hash256, PublicKey, PublicKeyBytes,
 pub struct ValidatorPubkeyCache<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> {
     pubkeys: Vec<PublicKey>,
     indices: HashMap<PublicKeyBytes, usize>,
-    pub(crate) validators: Vec<MemoryValidator>,
+    pub validators: Vec<MemoryValidator>,
     /// Validator indices (positions in `self.validators`) that have been updated and are
     /// awaiting being flushed to disk.
     dirty_indices: HashSet<usize>,
@@ -59,8 +60,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
             _phantom: PhantomData,
         };
 
-        let store_ops = cache.import_new_pubkeys(state)?;
-        store.do_atomically(store_ops)?;
+        cache.update_for_finalized_state(&state, state.slot(), store.get_chain_spec())?;
+        store
+            .hot_db
+            .do_atomically(cache.get_pending_validator_ops()?)?;
+        debug!(
+            store.log,
+            "Initialized finalized validator store";
+            "num_validators" => cache.validators.len(),
+        );
 
         Ok(cache)
     }
@@ -194,8 +202,15 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> ValidatorPubkeyCache<E, 
                 }
             } else {
                 assert_eq!(i, self.validators.len());
+                assert_eq!(i, self.pubkeys.len());
+                let pubkey_bytes = validator.pubkey_clone();
+                let pubkey = pubkey_bytes
+                    .decompress()
+                    .map_err(Error::InvalidValidatorPubkeyBytes)?;
+                self.indices.insert(*pubkey_bytes, i);
+                self.pubkeys.push(pubkey);
                 self.validators.push(MemoryValidator {
-                    pubkey: validator.pubkey_clone(),
+                    pubkey: pubkey_bytes,
                     updated_once: UpdatedOnceValidator::from_validator(validator, slot, spec)?,
                 });
                 num_validators_updated += 1;

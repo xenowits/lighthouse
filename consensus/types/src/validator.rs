@@ -143,6 +143,15 @@ impl Validator {
             && self.effective_balance() == spec.max_effective_balance
     }
 
+    /// Returns `true` if the validator has eth1 withdrawal credential.
+    pub fn has_eth1_withdrawal_credential(&self, _: &ChainSpec) -> bool {
+        self.withdrawal_credentials()
+            .as_bytes()
+            .first()
+            .map(|byte| *byte == 0x01)
+            .unwrap_or(false)
+    }
+
     /// Returns `true` if the validator is eligible to be activated.
     ///
     /// Spec v0.12.1
