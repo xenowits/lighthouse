@@ -2,7 +2,9 @@ use crate::{DBColumn, Error, StoreItem};
 use serde_derive::{Deserialize, Serialize};
 use ssz::{Decode, Encode};
 use ssz_derive::{Decode, Encode};
+use std::io::Write;
 use types::{EthSpec, MinimalEthSpec};
+use zstd::Encoder;
 
 pub const PREV_DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 2048;
 pub const DEFAULT_SLOTS_PER_RESTORE_POINT: u64 = 8192;
@@ -123,6 +125,16 @@ impl StoreConfig {
         } else {
             len * EST_COMPRESSION_FACTOR
         }
+    }
+
+    pub fn compress_bytes(&self, ssz_bytes: &[u8]) -> Result<Vec<u8>, Error> {
+        let mut compressed_value =
+            Vec::with_capacity(self.estimate_compressed_size(ssz_bytes.len()));
+        let mut encoder = Encoder::new(&mut compressed_value, self.compression_level)
+            .map_err(Error::Compression)?;
+        encoder.write_all(ssz_bytes).map_err(Error::Compression)?;
+        encoder.finish().map_err(Error::Compression)?;
+        Ok(compressed_value)
     }
 }
 

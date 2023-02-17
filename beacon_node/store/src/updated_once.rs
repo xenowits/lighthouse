@@ -333,14 +333,14 @@ impl<T: Encode + Decode + PartialEq> UpdatedOnce<T> {
                 if *initial == new_value {
                     // No new information
                     Ok(false)
-                } else if slot > latest_restore_point_slot {
+                } else if slot >= latest_restore_point_slot {
                     // Value has been updated to a new value at `slot` and could lie anywhere
                     // between `latest_restore_point` and the `slot` we've seen the updated value
                     // at.
                     *self = UpdatedOnce::TwoValuesKnown(TwoValuesKnown {
                         initial: *initial,
                         updated: new_value,
-                        bound: Bound::new(latest_restore_point_slot, slot)?,
+                        bound: Bound::new(latest_restore_point_slot - 1, slot)?,
                     });
                     Ok(true)
                 } else {

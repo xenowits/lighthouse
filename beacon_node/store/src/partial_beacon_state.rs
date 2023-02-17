@@ -6,11 +6,9 @@ use crate::{get_key_for_col, DBColumn, Error, KeyValueStore, KeyValueStoreOp, St
 use itertools::process_results;
 use ssz::{Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
-use std::io::Write;
 use std::sync::Arc;
 use types::superstruct;
 use types::*;
-use zstd::Encoder;
 
 /// Lightweight variant of the `BeaconState` that is stored in the database.
 ///
@@ -216,16 +214,8 @@ impl<T: EthSpec> PartialBeaconState<T> {
             DBColumn::BeaconRestorePointState.into(),
             &self.slot().as_u64().to_be_bytes(),
         );
-
         let ssz_bytes = self.as_ssz_bytes();
-
-        let mut compressed_value =
-            Vec::with_capacity(config.estimate_compressed_size(ssz_bytes.len()));
-        let mut encoder = Encoder::new(&mut compressed_value, config.compression_level)
-            .map_err(Error::Compression)?;
-        encoder.write_all(&ssz_bytes).map_err(Error::Compression)?;
-        encoder.finish().map_err(Error::Compression)?;
-
+        let compressed_value = config.compress_bytes(&ssz_bytes)?;
         Ok(KeyValueStoreOp::PutKeyValue(db_key, compressed_value))
     }
 

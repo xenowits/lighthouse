@@ -1305,6 +1305,33 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         let op = partial_state.as_kv_store_op(&self.config)?;
         ops.push(op);
 
+        let validators = partial_state.validators().as_ssz_bytes();
+        let balances = partial_state.balances().as_ssz_bytes();
+        let prev_participation = partial_state
+            .previous_epoch_participation()
+            .map_or(vec![], |p| p.as_ssz_bytes());
+        let current_participation = partial_state
+            .current_epoch_participation()
+            .map_or(vec![], |p| p.as_ssz_bytes());
+        let inactivity_scores = partial_state
+            .inactivity_scores()
+            .map_or(vec![], |p| p.as_ssz_bytes());
+
+        info!(
+            self.log,
+            "State size contributions";
+            "slot" => state.slot(),
+            "validators" => format!("{}/{}", self.config.compress_bytes(&validators)?.len(), validators.len()),
+            "balances" => format!("{}/{}", self.config.compress_bytes(&balances)?.len(), balances.len()),
+            "prev_participation" => format!("{}/{}", self.config.compress_bytes(&prev_participation)?.len(), prev_participation.len()),
+            "current_participation" => format!("{}/{}", self.config.compress_bytes(&current_participation)?.len(), current_participation.len()),
+            "inactivity_scores" => format!("{}/{}", self.config.compress_bytes(&inactivity_scores)?.len(), inactivity_scores.len()),
+        );
+        let path = std::path::PathBuf::from(format!("/tmp/balances_{}", state.slot()));
+        let mut f = std::fs::File::create(path).unwrap();
+        f.write_all(&balances).unwrap();
+        drop(f);
+
         // 2. Store updated vector entries.
         let db = &self.cold_db;
         store_updated_vector(BlockRoots, db, state, &self.spec, ops)?;
