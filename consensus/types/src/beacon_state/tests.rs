@@ -1,6 +1,9 @@
 #![cfg(test)]
 use crate::{test_utils::*, ForkName};
-use beacon_chain::test_utils::{BeaconChainHarness, EphemeralHarnessType};
+use beacon_chain::test_utils::{
+    interop_genesis_state_with_eth1, test_spec, BeaconChainHarness, EphemeralHarnessType,
+    DEFAULT_ETH1_BLOCK_HASH,
+};
 use beacon_chain::types::{
     test_utils::TestRandom, BeaconState, BeaconStateAltair, BeaconStateBase, BeaconStateError,
     BeaconStateMerge, ChainSpec, Domain, Epoch, EthSpec, FixedVector, Hash256, Keypair,

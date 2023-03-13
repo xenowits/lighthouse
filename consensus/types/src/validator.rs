@@ -1,5 +1,6 @@
 use crate::{
-    test_utils::TestRandom, BeaconState, ChainSpec, Epoch, EthSpec, Hash256, PublicKeyBytes,
+    test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
+    PublicKeyBytes,
 };
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
@@ -11,8 +12,19 @@ use tree_hash_derive::TreeHash;
 const NUM_FIELDS: usize = 8;
 
 /// Information about a `BeaconChain` validator.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom)]
+///
+/// Spec v0.12.1
+#[derive(
+    arbitrary::Arbitrary,
+    Debug,
+    Clone,
+    PartialEq,
+    Serialize,
+    Deserialize,
+    Encode,
+    Decode,
+    TestRandom,
+)]
 #[serde(deny_unknown_fields)]
 pub struct Validator {
     pub pubkey: Arc<PublicKeyBytes>,
@@ -143,15 +155,6 @@ impl Validator {
             && self.effective_balance() == spec.max_effective_balance
     }
 
-    /// Returns `true` if the validator has eth1 withdrawal credential.
-    pub fn has_eth1_withdrawal_credential(&self, _: &ChainSpec) -> bool {
-        self.withdrawal_credentials()
-            .as_bytes()
-            .first()
-            .map(|byte| *byte == 0x01)
-            .unwrap_or(false)
-    }
-
     /// Returns `true` if the validator is eligible to be activated.
     ///
     /// Spec v0.12.1
@@ -184,6 +187,49 @@ impl Validator {
         hasher.write(self.withdrawable_epoch().tree_hash_root().as_bytes())?;
 
         hasher.finish()
+    }
+
+    /// Returns `true` if the validator has eth1 withdrawal credential.
+    pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
+        self.withdrawal_credentials
+            .as_bytes()
+            .first()
+            .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
+            .unwrap_or(false)
+    }
+
+    /// Get the eth1 withdrawal address if this validator has one initialized.
+    pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
+        self.has_eth1_withdrawal_credential(spec)
+            .then(|| {
+                self.withdrawal_credentials
+                    .as_bytes()
+                    .get(12..)
+                    .map(Address::from_slice)
+            })
+            .flatten()
+    }
+
+    /// Changes withdrawal credentials to  the provided eth1 execution address.
+    ///
+    /// WARNING: this function does NO VALIDATION - it just does it!
+    pub fn change_withdrawal_credentials(&mut self, execution_address: &Address, spec: &ChainSpec) {
+        let mut bytes = [0u8; 32];
+        bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
+        bytes[12..].copy_from_slice(execution_address.as_bytes());
+        self.withdrawal_credentials = Hash256::from(bytes);
+    }
+
+    /// Returns `true` if the validator is fully withdrawable at some epoch.
+    pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
+        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+    }
+
+    /// Returns `true` if the validator is partially withdrawable.
+    pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
+        self.has_eth1_withdrawal_credential(spec)
+            && self.effective_balance == spec.max_effective_balance
+            && balance > spec.max_effective_balance
     }
 }
 

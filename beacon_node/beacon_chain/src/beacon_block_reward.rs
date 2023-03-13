@@ -14,12 +14,12 @@ use store::{
     consts::altair::{PARTICIPATION_FLAG_WEIGHTS, PROPOSER_WEIGHT, WEIGHT_DENOMINATOR},
     RelativeEpoch,
 };
-use types::{BeaconBlockRef, BeaconState, BeaconStateError, ExecPayload, Hash256};
+use types::{AbstractExecPayload, BeaconBlockRef, BeaconState, BeaconStateError, Hash256};
 
 type BeaconBlockSubRewardValue = u64;
 
 impl<T: BeaconChainTypes> BeaconChain<T> {
-    pub fn compute_beacon_block_reward<Payload: ExecPayload<T::EthSpec>>(
+    pub fn compute_beacon_block_reward<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
@@ -96,7 +96,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         })
     }
 
-    fn compute_beacon_block_sync_aggregate_reward<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_sync_aggregate_reward<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
@@ -110,7 +110,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         }
     }
 
-    fn compute_beacon_block_proposer_slashing_reward<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_proposer_slashing_reward<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
@@ -131,7 +131,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(proposer_slashing_reward)
     }
 
-    fn compute_beacon_block_attester_slashing_reward<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attester_slashing_reward<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &BeaconState<T::EthSpec>,
@@ -154,7 +154,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(attester_slashing_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_base<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attestation_reward_base<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         block_root: Hash256,
@@ -172,7 +172,7 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
         Ok(block_attestation_reward)
     }
 
-    fn compute_beacon_block_attestation_reward_altair<Payload: ExecPayload<T::EthSpec>>(
+    fn compute_beacon_block_attestation_reward_altair<Payload: AbstractExecPayload<T::EthSpec>>(
         &self,
         block: BeaconBlockRef<'_, T::EthSpec, Payload>,
         state: &mut BeaconState<T::EthSpec>,

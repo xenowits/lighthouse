@@ -1,5 +1,5 @@
 use crate::chunked_vector::{
-    store_updated_vector, BlockRoots, HistoricalRoots, RandaoMixes, StateRoots,
+    store_updated_vector, BlockRoots, HistoricalRoots, HistoricalSummaries, RandaoMixes, StateRoots,
 };
 use crate::config::{
     OnDiskStoreConfig, StoreConfig, DEFAULT_SLOTS_PER_RESTORE_POINT,
@@ -400,7 +400,8 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         } else if !self.config.prune_payloads {
             // If payload pruning is disabled there's a chance we may have the payload of
             // this finalized block. Attempt to load it but don't error in case it's missing.
-            if let Some(payload) = self.get_execution_payload(block_root)? {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
+            if let Some(payload) = self.get_execution_payload(block_root, fork_name)? {
                 DatabaseBlock::Full(
                     blinded_block
                         .try_into_full_block(Some(payload))
@@ -440,8 +441,9 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         blinded_block: SignedBeaconBlock<E, BlindedPayload<E>>,
     ) -> Result<SignedBeaconBlock<E>, Error> {
         if blinded_block.message().execution_payload().is_ok() {
+            let fork_name = blinded_block.fork_name(&self.spec)?;
             let execution_payload = self
-                .get_execution_payload(block_root)?
+                .get_execution_payload(block_root, fork_name)?
                 .ok_or(HotColdDBError::MissingExecutionPayload(*block_root))?;
             blinded_block.try_into_full_block(Some(execution_payload))
         } else {
@@ -554,7 +556,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Fetch a block from the store, ignoring which fork variant it *should* be for.
-    pub fn get_block_any_variant<Payload: ExecPayload<E>>(
+    pub fn get_block_any_variant<Payload: AbstractExecPayload<E>>(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<SignedBeaconBlock<E, Payload>>, Error> {
@@ -565,7 +567,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     ///
     /// This is useful for e.g. ignoring the slot-indicated fork to forcefully load a block as if it
     /// were for a different fork.
-    pub fn get_block_with<Payload: ExecPayload<E>>(
+    pub fn get_block_with<Payload: AbstractExecPayload<E>>(
         &self,
         block_root: &Hash256,
         decoder: impl FnOnce(&[u8]) -> Result<SignedBeaconBlock<E, Payload>, ssz::DecodeError>,
@@ -578,7 +580,24 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     }
 
     /// Load the execution payload for a block from disk.
+    /// This method deserializes with the proper fork.
     pub fn get_execution_payload(
+        &self,
+        block_root: &Hash256,
+        fork_name: ForkName,
+    ) -> Result<Option<ExecutionPayload<E>>, Error> {
+        let column = ExecutionPayload::<E>::db_column().into();
+        let key = block_root.as_bytes();
+
+        match self.hot_db.get_bytes(column, key)? {
+            Some(bytes) => Ok(Some(ExecutionPayload::from_ssz_bytes(&bytes, fork_name)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Load the execution payload for a block from disk.
+    /// DANGEROUS: this method just guesses the fork.
+    pub fn get_execution_payload_dangerous_fork_agnostic(
         &self,
         block_root: &Hash256,
     ) -> Result<Option<ExecutionPayload<E>>, Error> {
@@ -813,7 +832,10 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
                     let key = get_key_for_col(DBColumn::ExecPayload.into(), block_root.as_bytes());
                     key_value_batch.push(KeyValueStoreOp::DeleteKey(key));
                 }
-                StoreOp::KeyValueOp(kv_op) => key_value_batch.push(kv_op),
+
+                StoreOp::KeyValueOp(kv_op) => {
+                    key_value_batch.push(kv_op);
+                }
             }
         }
         Ok(key_value_batch)
@@ -1338,6 +1360,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         store_updated_vector(StateRoots, db, state, &self.spec, ops)?;
         store_updated_vector(HistoricalRoots, db, state, &self.spec, ops)?;
         store_updated_vector(RandaoMixes, db, state, &self.spec, ops)?;
+        store_updated_vector(HistoricalSummaries, db, state, &self.spec, ops)?;
 
         // 3. Store restore point.
         // FIXME(sproul): backwards compat
@@ -1404,6 +1427,7 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
         partial_state.load_state_roots(&self.cold_db, &self.spec)?;
         partial_state.load_historical_roots(&self.cold_db, &self.spec)?;
         partial_state.load_randao_mixes(&self.cold_db, &self.spec)?;
+        partial_state.load_historical_summaries(&self.cold_db, &self.spec)?;
 
         let pubkey_cache = self.immutable_validators.read();
         let memory_validators = |i: usize, effective_balance: u64| {
@@ -1567,6 +1591,11 @@ impl<E: EthSpec, Hot: ItemStore<E>, Cold: ItemStore<E>> HotColdDB<E, Hot, Cold> 
     /// Get a reference to the `ChainSpec` used by the database.
     pub fn get_chain_spec(&self) -> &ChainSpec {
         &self.spec
+    }
+
+    /// Get a reference to the `Logger` used by the database.
+    pub fn logger(&self) -> &Logger {
+        &self.log
     }
 
     /// Fetch a copy of the current split slot from memory.

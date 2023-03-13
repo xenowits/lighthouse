@@ -4,7 +4,7 @@ use crate::hot_cold_store::HotColdDBError;
 use crate::updated_once::UpdatedOnceError;
 use ssz::DecodeError;
 use state_processing::BlockReplayError;
-use types::{milhouse, BeaconStateError, Hash256, Slot};
+use types::{milhouse, BeaconStateError, Hash256, InconsistentFork, Slot};
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -58,7 +58,6 @@ pub enum Error {
         slot: Slot,
     },
     AddPayloadLogicError,
-    ResyncRequiredForExecutionPayloadSeparation,
     SlotClockUnavailableForMigration,
     MissingImmutableValidator(usize),
     MissingValidator(usize),
@@ -69,6 +68,8 @@ pub enum Error {
     ValidatorPubkeyCacheUninitialized,
     InvalidKey,
     UpdatedOnce(UpdatedOnceError),
+    UnableToDowngrade,
+    InconsistentFork(InconsistentFork),
 }
 
 pub trait HandleUnavailable<T> {
@@ -136,6 +137,12 @@ impl From<BlockReplayError> for Error {
 impl From<UpdatedOnceError> for Error {
     fn from(e: UpdatedOnceError) -> Error {
         Error::UpdatedOnce(e)
+    }
+}
+
+impl From<InconsistentFork> for Error {
+    fn from(e: InconsistentFork) -> Error {
+        Error::InconsistentFork(e)
     }
 }
 

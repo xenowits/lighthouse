@@ -26,6 +26,7 @@ impl<T: Encode + Decode> Maybe<T> {
     }
 }
 
+// FIXME(sproul): need the historical accumulator here as well. superstruct?
 #[derive(Debug, PartialEq, Encode, Decode)]
 pub struct BeaconStateDiff<T: EthSpec> {
     // Versioning

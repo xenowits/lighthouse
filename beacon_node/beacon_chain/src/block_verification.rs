@@ -87,6 +87,7 @@ use std::sync::Arc;
 use store::{Error as DBError, KeyValueStore, StoreOp};
 use task_executor::JoinHandle;
 use tree_hash::TreeHash;
+use types::ExecPayload;
 use types::{
     BeaconBlockRef, BeaconState, BeaconStateError, BlindedPayload, ChainSpec, Epoch, EthSpec,
     ExecutionBlockHash, Hash256, InconsistentFork, PublicKey, PublicKeyBytes, RelativeEpoch,
@@ -743,7 +744,7 @@ impl<T: BeaconChainTypes> GossipVerifiedBlock<T> {
         // Do not process a block that doesn't descend from the finalized root.
         //
         // We check this *before* we load the parent so that we can return a more detailed error.
-        check_block_is_finalized_descendant(
+        check_block_is_finalized_checkpoint_or_descendant(
             chain,
             &chain.canonical_head.fork_choice_write_lock(),
             &block,
@@ -1186,7 +1187,7 @@ impl<T: BeaconChainTypes> ExecutionPendingBlock<T> {
                     .message()
                     .body()
                     .execution_payload()
-                    .map(|full_payload| full_payload.execution_payload.block_hash);
+                    .map(|full_payload| full_payload.block_hash());
 
                 // Ensure the block is a candidate for optimistic import.
                 if !is_optimistic_candidate_block(&chain, block.slot(), block.parent_root()).await?
@@ -1544,12 +1545,12 @@ fn check_block_against_finalized_slot<T: BeaconChainTypes>(
 /// ## Warning
 ///
 /// Taking a lock on the `chain.canonical_head.fork_choice` might cause a deadlock here.
-pub fn check_block_is_finalized_descendant<T: BeaconChainTypes>(
+pub fn check_block_is_finalized_checkpoint_or_descendant<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
     fork_choice: &BeaconForkChoice<T>,
     block: &Arc<SignedBeaconBlock<T::EthSpec>>,
 ) -> Result<(), BlockError<T::EthSpec>> {
-    if fork_choice.is_descendant_of_finalized(block.parent_root()) {
+    if fork_choice.is_finalized_checkpoint_or_descendant(block.parent_root()) {
         Ok(())
     } else {
         // If fork choice does *not* consider the parent to be a descendant of the finalized block,
@@ -1798,7 +1799,7 @@ fn cheap_state_advance_to_obtain_committees<'a, E: EthSpec>(
 }
 
 /// Obtains a read-locked `ValidatorPubkeyCache` from the `chain`.
-fn get_validator_pubkey_cache<T: BeaconChainTypes>(
+pub fn get_validator_pubkey_cache<T: BeaconChainTypes>(
     chain: &BeaconChain<T>,
 ) -> Result<RwLockReadGuard<ValidatorPubkeyCache<T>>, BlockError<T::EthSpec>> {
     chain

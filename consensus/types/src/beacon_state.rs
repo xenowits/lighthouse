@@ -1,10 +1,12 @@
 use self::committee_cache::get_active_validator_indices;
 use self::exit_cache::ExitCache;
+use crate::historical_summary::HistoricalSummary;
 use crate::test_utils::TestRandom;
 use crate::validator::ValidatorTrait;
 use crate::*;
 use compare_fields::CompareFields;
 use compare_fields_derive::CompareFields;
+use derivative::Derivative;
 use ethereum_hashing::hash;
 use int_to_bytes::{int_to_bytes4, int_to_bytes8};
 use metastruct::{metastruct, NumFields};
@@ -15,6 +17,7 @@ use ssz::{ssz_encode, Decode, DecodeError, Encode};
 use ssz_derive::{Decode, Encode};
 use ssz_types::{typenum::Unsigned, BitVector};
 use std::convert::TryInto;
+use std::hash::Hash;
 use std::{fmt, mem, sync::Arc};
 use superstruct::superstruct;
 use swap_or_not_shuffle::compute_shuffled_index;
@@ -124,6 +127,7 @@ pub enum Error {
     ArithError(ArithError),
     MissingBeaconBlock(SignedBeaconBlockHash),
     MissingBeaconState(BeaconStateHash),
+    PayloadConversionLogicFlaw,
     SyncCommitteeNotKnown {
         current_epoch: Epoch,
         epoch: Epoch,
@@ -162,8 +166,7 @@ impl AllowNextEpoch {
     }
 }
 
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(PartialEq, Eq, Hash, Clone, Copy)]
+#[derive(PartialEq, Eq, Hash, Clone, Copy, arbitrary::Arbitrary)]
 pub struct BeaconStateHash(Hash256);
 
 impl fmt::Debug for BeaconStateHash {
@@ -192,12 +195,12 @@ impl From<BeaconStateHash> for Hash256 {
 
 /// The state of the `BeaconChain` at some slot.
 #[superstruct(
-    variants(Base, Altair, Merge),
+    variants(Base, Altair, Merge, Capella),
     variant_attributes(
         derive(
+            Derivative,
             Debug,
             PartialEq,
-            Clone,
             Serialize,
             Deserialize,
             Encode,
@@ -205,9 +208,11 @@ impl From<BeaconStateHash> for Hash256 {
             TreeHash,
             TestRandom,
             CompareFields,
+            arbitrary::Arbitrary,
         ),
         serde(bound = "T: EthSpec", deny_unknown_fields),
-        cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))
+        arbitrary(bound = "T: EthSpec, GenericValidator: ValidatorTrait"),
+        derivative(Clone),
     ),
     specific_variant_attributes(
         Base(metastruct(
@@ -231,14 +236,23 @@ impl From<BeaconStateHash> for Hash256 {
             ),
             num_fields(all()),
         )),
+        Capella(metastruct(
+            mappings(
+                map_beacon_state_capella_fields(),
+                map_beacon_state_capella_tree_list_fields(mutable, fallible, groups(tree_lists)),
+            ),
+            num_fields(all()),
+        )),
     ),
     cast_error(ty = "Error", expr = "Error::IncorrectStateVariant"),
     partial_getter_error(ty = "Error", expr = "Error::IncorrectStateVariant")
 )]
-#[derive(Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash)]
+#[derive(
+    Debug, PartialEq, Clone, Serialize, Deserialize, Encode, TreeHash, arbitrary::Arbitrary,
+)]
 #[serde(untagged)]
 #[serde(bound = "T: EthSpec")]
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
+#[arbitrary(bound = "T: EthSpec, GenericValidator: ValidatorTrait")]
 #[tree_hash(enum_behaviour = "transparent")]
 #[ssz(enum_behaviour = "transparent")]
 pub struct BeaconState<T, GenericValidator: ValidatorTrait = Validator>
@@ -267,6 +281,7 @@ where
     pub block_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
     #[test_random(default)]
     pub state_roots: FixedVector<Hash256, T::SlotsPerHistoricalRoot>,
+    // Frozen in Capella, replaced by historical_summaries
     #[test_random(default)]
     pub historical_roots: VList<Hash256, T::HistoricalRootsLimit>,
 
@@ -305,10 +320,10 @@ where
     pub current_epoch_attestations: VList<PendingAttestation<T>, T::MaxPendingAttestations>,
 
     // Participation (Altair and later)
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Capella))]
     #[test_random(default)]
     pub previous_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Capella))]
     #[test_random(default)]
     pub current_epoch_participation: VList<ParticipationFlags, T::ValidatorRegistryLimit>,
 
@@ -328,22 +343,44 @@ where
 
     // Inactivity
     #[serde(with = "ssz_types::serde_utils::quoted_u64_var_list")]
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Capella))]
     #[test_random(default)]
     pub inactivity_scores: VList<u64, T::ValidatorRegistryLimit>,
 
     // Light-client sync committees
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Capella))]
     #[metastruct(exclude_from(tree_lists))]
     pub current_sync_committee: Arc<SyncCommittee<T>>,
-    #[superstruct(only(Altair, Merge))]
+    #[superstruct(only(Altair, Merge, Capella))]
     #[metastruct(exclude_from(tree_lists))]
     pub next_sync_committee: Arc<SyncCommittee<T>>,
 
     // Execution
-    #[superstruct(only(Merge))]
+    #[superstruct(
+        only(Merge),
+        partial_getter(rename = "latest_execution_payload_header_merge")
+    )]
     #[metastruct(exclude_from(tree_lists))]
-    pub latest_execution_payload_header: ExecutionPayloadHeader<T>,
+    pub latest_execution_payload_header: ExecutionPayloadHeaderMerge<T>,
+    #[superstruct(
+        only(Capella),
+        partial_getter(rename = "latest_execution_payload_header_capella")
+    )]
+    #[metastruct(exclude_from(tree_lists))]
+    pub latest_execution_payload_header: ExecutionPayloadHeaderCapella<T>,
+
+    // Capella
+    #[superstruct(only(Capella), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[metastruct(exclude_from(tree_lists))]
+    pub next_withdrawal_index: u64,
+    #[superstruct(only(Capella), partial_getter(copy))]
+    #[serde(with = "serde_utils::quoted_u64")]
+    #[metastruct(exclude_from(tree_lists))]
+    pub next_withdrawal_validator_index: u64,
+    // Deep history valid from Capella onwards.
+    #[superstruct(only(Capella))]
+    pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -459,6 +496,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Base { .. } => ForkName::Base,
             BeaconState::Altair { .. } => ForkName::Altair,
             BeaconState::Merge { .. } => ForkName::Merge,
+            BeaconState::Capella { .. } => ForkName::Capella,
         }
     }
 
@@ -730,6 +768,33 @@ impl<T: EthSpec> BeaconState<T> {
             .get(index)
             .copied()
             .ok_or(Error::ShuffleIndexOutOfBounds(index))
+    }
+
+    /// Convenience accessor for the `execution_payload_header` as an `ExecutionPayloadHeaderRef`.
+    pub fn latest_execution_payload_header(&self) -> Result<ExecutionPayloadHeaderRef<T>, Error> {
+        match self {
+            BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRef::Merge(
+                &state.latest_execution_payload_header,
+            )),
+            BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRef::Capella(
+                &state.latest_execution_payload_header,
+            )),
+        }
+    }
+
+    pub fn latest_execution_payload_header_mut(
+        &mut self,
+    ) -> Result<ExecutionPayloadHeaderRefMut<T>, Error> {
+        match self {
+            BeaconState::Base(_) | BeaconState::Altair(_) => Err(Error::IncorrectStateVariant),
+            BeaconState::Merge(state) => Ok(ExecutionPayloadHeaderRefMut::Merge(
+                &mut state.latest_execution_payload_header,
+            )),
+            BeaconState::Capella(state) => Ok(ExecutionPayloadHeaderRefMut::Capella(
+                &mut state.latest_execution_payload_header,
+            )),
+        }
     }
 
     /// Return `true` if the validator who produced `slot_signature` is eligible to aggregate.
@@ -1159,6 +1224,7 @@ impl<T: EthSpec> BeaconState<T> {
             BeaconState::Base(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Altair(state) => (&mut state.validators, &mut state.balances),
             BeaconState::Merge(state) => (&mut state.validators, &mut state.balances),
+            BeaconState::Capella(state) => (&mut state.validators, &mut state.balances),
         }
     }
 
@@ -1384,12 +1450,14 @@ impl<T: EthSpec> BeaconState<T> {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.current_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.current_epoch_participation),
+                BeaconState::Capella(state) => Ok(&mut state.current_epoch_participation),
             }
         } else if epoch == self.previous_epoch() {
             match self {
                 BeaconState::Base(_) => Err(BeaconStateError::IncorrectStateVariant),
                 BeaconState::Altair(state) => Ok(&mut state.previous_epoch_participation),
                 BeaconState::Merge(state) => Ok(&mut state.previous_epoch_participation),
+                BeaconState::Capella(state) => Ok(&mut state.previous_epoch_participation),
             }
         } else {
             Err(BeaconStateError::EpochOutOfBounds)
@@ -1839,7 +1907,24 @@ impl<T: EthSpec> CompareFields for BeaconState<T> {
             (BeaconState::Base(x), BeaconState::Base(y)) => x.compare_fields(y),
             (BeaconState::Altair(x), BeaconState::Altair(y)) => x.compare_fields(y),
             (BeaconState::Merge(x), BeaconState::Merge(y)) => x.compare_fields(y),
+            (BeaconState::Capella(x), BeaconState::Capella(y)) => x.compare_fields(y),
             _ => panic!("compare_fields: mismatched state variants",),
         }
+    }
+}
+
+impl<T: EthSpec> ForkVersionDeserialize for BeaconState<T> {
+    fn deserialize_by_fork<'de, D: serde::Deserializer<'de>>(
+        value: serde_json::value::Value,
+        fork_name: ForkName,
+    ) -> Result<Self, D::Error> {
+        Ok(map_fork_name!(
+            fork_name,
+            Self,
+            serde_json::from_value(value).map_err(|e| serde::de::Error::custom(format!(
+                "BeaconState failed to deserialize: {:?}",
+                e
+            )))?
+        ))
     }
 }
