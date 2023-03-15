@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use tree_hash::TreeHash;
 use types::{
     AbstractExecPayload, BlindedPayload, EthSpec, ExecPayload, ExecutionBlockHash, FullPayload,
-    Hash256, SignedBeaconBlock,
+    Hash256, SignedBeaconBlock, SignedBeaconBlockAndBlobsSidecar,
 };
 use warp::Rejection;
 
@@ -40,11 +40,10 @@ pub async fn publish_block<T: BeaconChainTypes>(
     let wrapped_block: BlockWrapper<T::EthSpec> =
         if matches!(block.as_ref(), &SignedBeaconBlock::Eip4844(_)) {
             if let Some(sidecar) = chain.blob_cache.pop(&block_root) {
-                // TODO: Needs to be adjusted
-                // let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
-                //     beacon_block: block,
-                //     blobs_sidecar: Arc::new(sidecar),
-                // };
+                let block_and_blobs = SignedBeaconBlockAndBlobsSidecar {
+                    beacon_block: block,
+                    blobs_sidecar: Arc::new(sidecar),
+                };
                 unimplemented!("Needs to be adjusted")
             } else {
                 //FIXME(sean): This should probably return a specific no-blob-cached error code, beacon API coordination required
