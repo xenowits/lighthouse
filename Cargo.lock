@@ -616,7 +616,7 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
- "superstruct 0.5.0",
+ "superstruct 0.7.0",
  "task_executor",
  "tempfile",
  "tokio",
@@ -767,6 +767,7 @@ version = "0.2.0"
 dependencies = [
  "arbitrary",
  "blst",
+ "criterion",
  "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_serde_utils",
@@ -920,6 +921,9 @@ name = "cc"
 version = "1.0.79"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "50d30906286121d95be3d479533b458f87493b30a4b5f79a607db8f5d11aa91f"
+dependencies = [
+ "jobserver",
+]
 
 [[package]]
 name = "ccm"
@@ -1589,6 +1593,7 @@ dependencies = [
  "clap",
  "clap_utils",
  "environment",
+ "ethereum_ssz",
  "hex",
  "logging",
  "slog",
@@ -2092,7 +2097,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
- "superstruct 0.5.0",
+ "superstruct 0.7.0",
  "task_executor",
  "tokio",
  "tree_hash",
@@ -4437,7 +4442,7 @@ dependencies = [
  "snap",
  "ssz_types",
  "strum",
- "superstruct 0.5.0",
+ "superstruct 0.7.0",
  "task_executor",
  "tempfile",
  "tiny-keccak",
@@ -7553,9 +7558,9 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "superstruct"
-version = "0.7.0"
+version = "0.6.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
+checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
 dependencies = [
  "darling 0.13.4",
  "itertools",
@@ -7567,9 +7572,9 @@ dependencies = [
 
 [[package]]
 name = "superstruct"
-version = "0.6.0"
+version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
+checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
 dependencies = [
  "darling 0.13.4",
  "itertools",
@@ -8417,7 +8422,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "state_processing",
- "superstruct 0.6.0",
+ "superstruct 0.7.0",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",

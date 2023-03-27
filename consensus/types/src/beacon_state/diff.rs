@@ -15,7 +15,7 @@ use std::sync::Arc;
 /// Uses a succinct 1 byte union selector.
 #[derive(Debug, PartialEq, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
-pub enum Maybe<T: Encode + Decode> {
+pub enum Maybe<T> {
     Nothing(u8),
     Just(T),
 }
@@ -28,7 +28,7 @@ impl<T: Encode + Decode> Maybe<T> {
 
 // FIXME(sproul): need the historical accumulator here as well. superstruct?
 #[derive(Debug, PartialEq, Encode, Decode)]
-pub struct BeaconStateDiff<T: EthSpec> {
+pub struct BeaconStateDiffMain<T: EthSpec> {
     // Versioning
     genesis_time: CloneDiff<u64>,
     genesis_validators_root: CloneDiff<Hash256>,
@@ -87,6 +87,13 @@ pub struct BeaconStateDiff<T: EthSpec> {
     // Total active balance cache
     total_active_balance: TotalActiveBalanceDiff,
 }
+
+#[derive(Debug, PartialEq, Encode, Decode)]
+pub struct BeaconStateDiff<T: EthSpec> {
+    main:
+    latest_execution_payload_header: ExecutionPayloadHeaderDiff<
+}
+
 
 /// Zero to three committee caches which update a `BeaconState`'s stored committee caches.
 ///
@@ -241,6 +248,11 @@ impl Diff for TotalActiveBalanceDiff {
         *target = Some((self.current_epoch, self.balance));
         Ok(())
     }
+}
+
+#[derive(Debug, PartialEq, Encode)]
+pub struct ExecutionPayloadHeaderDiff<T: EthSpec> {
+    payload: Maybe<ExecutionPayloadHeader<T>>,
 }
 
 impl<T: EthSpec> Diff for BeaconStateDiff<T> {
