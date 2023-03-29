@@ -13,21 +13,21 @@ use std::sync::Arc;
 /// `Option`-like type implementing SSZ encode/decode.
 ///
 /// Uses a succinct 1 byte union selector.
-#[derive(Debug, PartialEq, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode)]
 #[ssz(enum_behaviour = "union")]
-pub enum Maybe<T> {
+pub enum Maybe<T: Encode> {
     Nothing(u8),
     Just(T),
 }
 
-impl<T: Encode + Decode> Maybe<T> {
+impl<T: Encode> Maybe<T> {
     fn nothing() -> Self {
         Self::Nothing(0)
     }
 }
 
 // FIXME(sproul): need the historical accumulator here as well. superstruct?
-#[derive(Debug, PartialEq, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode)]
 pub struct BeaconStateDiffMain<T: EthSpec> {
     // Versioning
     genesis_time: CloneDiff<u64>,
@@ -79,21 +79,17 @@ pub struct BeaconStateDiffMain<T: EthSpec> {
     current_sync_committee: Maybe<CloneDiff<Arc<SyncCommittee<T>>>>,
     next_sync_committee: Maybe<CloneDiff<Arc<SyncCommittee<T>>>>,
 
-    // Execution
-    latest_execution_payload_header: Maybe<CloneDiff<ExecutionPayloadHeader<T>>>,
-
     // Committee caches
     committee_caches: CommitteeCachesDiff,
     // Total active balance cache
     total_active_balance: TotalActiveBalanceDiff,
 }
 
-#[derive(Debug, PartialEq, Encode, Decode)]
+#[derive(Debug, PartialEq, Encode)]
 pub struct BeaconStateDiff<T: EthSpec> {
-    main:
-    latest_execution_payload_header: ExecutionPayloadHeaderDiff<
+    main: BeaconStateDiffMain<T>,
+    latest_execution_payload_header: Maybe<ExecutionPayloadHeader<T>>,
 }
-
 
 /// Zero to three committee caches which update a `BeaconState`'s stored committee caches.
 ///
@@ -250,11 +246,6 @@ impl Diff for TotalActiveBalanceDiff {
     }
 }
 
-#[derive(Debug, PartialEq, Encode)]
-pub struct ExecutionPayloadHeaderDiff<T: EthSpec> {
-    payload: Maybe<ExecutionPayloadHeader<T>>,
-}
-
 impl<T: EthSpec> Diff for BeaconStateDiff<T> {
     type Target = BeaconState<T>;
     type Error = Error;
@@ -283,155 +274,189 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
         )?;
 
         Ok(BeaconStateDiff {
-            genesis_time: <_>::compute_diff(&orig.genesis_time(), &other.genesis_time())?,
-            genesis_validators_root: <_>::compute_diff(
-                &orig.genesis_validators_root(),
-                &other.genesis_validators_root(),
-            )?,
-            slot: <_>::compute_diff(&orig.slot(), &other.slot())?,
-            fork: <_>::compute_diff(&orig.fork(), &other.fork())?,
-            latest_block_header: <_>::compute_diff(
-                orig.latest_block_header(),
-                other.latest_block_header(),
-            )?,
-            block_roots: <_>::compute_diff(orig.block_roots(), other.block_roots())?,
-            state_roots: <_>::compute_diff(orig.state_roots(), other.state_roots())?,
-            historical_roots: <_>::compute_diff(orig.historical_roots(), other.historical_roots())?,
-            eth1_data: <_>::compute_diff(orig.eth1_data(), other.eth1_data())?,
-            eth1_data_votes: <_>::compute_diff(orig.eth1_data_votes(), other.eth1_data_votes())?,
-            eth1_deposit_index: <_>::compute_diff(
-                &orig.eth1_deposit_index(),
-                &other.eth1_deposit_index(),
-            )?,
-            validators: <_>::compute_diff(orig.validators(), other.validators())?,
-            balances: <_>::compute_diff(orig.balances(), other.balances())?,
-            randao_mixes: <_>::compute_diff(orig.randao_mixes(), other.randao_mixes())?,
-            slashings: <_>::compute_diff(orig.slashings(), other.slashings())?,
-            previous_epoch_attestations: optional_field_diff(
-                orig,
-                other,
-                BeaconState::previous_epoch_attestations,
-            )?,
-            current_epoch_attestations: optional_field_diff(
-                orig,
-                other,
-                BeaconState::current_epoch_attestations,
-            )?,
-            previous_epoch_participation: optional_field_diff(
-                orig,
-                other,
-                BeaconState::previous_epoch_participation,
-            )?,
-            current_epoch_participation: optional_field_diff(
-                orig,
-                other,
-                BeaconState::current_epoch_participation,
-            )?,
-            justification_bits: <_>::compute_diff(
-                orig.justification_bits(),
-                other.justification_bits(),
-            )?,
-            previous_justified_checkpoint: <_>::compute_diff(
-                &orig.previous_justified_checkpoint(),
-                &other.previous_justified_checkpoint(),
-            )?,
-            current_justified_checkpoint: <_>::compute_diff(
-                &orig.current_justified_checkpoint(),
-                &other.current_justified_checkpoint(),
-            )?,
-            finalized_checkpoint: <_>::compute_diff(
-                &orig.finalized_checkpoint(),
-                &other.finalized_checkpoint(),
-            )?,
-            inactivity_scores: optional_field_diff(orig, other, BeaconState::inactivity_scores)?,
-            current_sync_committee: optional_field_diff(
-                orig,
-                other,
-                BeaconState::current_sync_committee,
-            )?,
-            next_sync_committee: optional_field_diff(
-                orig,
-                other,
-                BeaconState::next_sync_committee,
-            )?,
-            latest_execution_payload_header: optional_field_diff(
-                orig,
-                other,
-                BeaconState::latest_execution_payload_header,
-            )?,
-            committee_caches,
-            total_active_balance: TotalActiveBalanceDiff::compute_diff(
-                orig.total_active_balance(),
-                other.total_active_balance(),
-            )?,
+            main: BeaconStateDiffMain {
+                genesis_time: <_>::compute_diff(&orig.genesis_time(), &other.genesis_time())?,
+                genesis_validators_root: <_>::compute_diff(
+                    &orig.genesis_validators_root(),
+                    &other.genesis_validators_root(),
+                )?,
+                slot: <_>::compute_diff(&orig.slot(), &other.slot())?,
+                fork: <_>::compute_diff(&orig.fork(), &other.fork())?,
+                latest_block_header: <_>::compute_diff(
+                    orig.latest_block_header(),
+                    other.latest_block_header(),
+                )?,
+                block_roots: <_>::compute_diff(orig.block_roots(), other.block_roots())?,
+                state_roots: <_>::compute_diff(orig.state_roots(), other.state_roots())?,
+                historical_roots: <_>::compute_diff(
+                    orig.historical_roots(),
+                    other.historical_roots(),
+                )?,
+                eth1_data: <_>::compute_diff(orig.eth1_data(), other.eth1_data())?,
+                eth1_data_votes: <_>::compute_diff(
+                    orig.eth1_data_votes(),
+                    other.eth1_data_votes(),
+                )?,
+                eth1_deposit_index: <_>::compute_diff(
+                    &orig.eth1_deposit_index(),
+                    &other.eth1_deposit_index(),
+                )?,
+                validators: <_>::compute_diff(orig.validators(), other.validators())?,
+                balances: <_>::compute_diff(orig.balances(), other.balances())?,
+                randao_mixes: <_>::compute_diff(orig.randao_mixes(), other.randao_mixes())?,
+                slashings: <_>::compute_diff(orig.slashings(), other.slashings())?,
+                previous_epoch_attestations: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::previous_epoch_attestations,
+                )?,
+                current_epoch_attestations: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::current_epoch_attestations,
+                )?,
+                previous_epoch_participation: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::previous_epoch_participation,
+                )?,
+                current_epoch_participation: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::current_epoch_participation,
+                )?,
+                justification_bits: <_>::compute_diff(
+                    orig.justification_bits(),
+                    other.justification_bits(),
+                )?,
+                previous_justified_checkpoint: <_>::compute_diff(
+                    &orig.previous_justified_checkpoint(),
+                    &other.previous_justified_checkpoint(),
+                )?,
+                current_justified_checkpoint: <_>::compute_diff(
+                    &orig.current_justified_checkpoint(),
+                    &other.current_justified_checkpoint(),
+                )?,
+                finalized_checkpoint: <_>::compute_diff(
+                    &orig.finalized_checkpoint(),
+                    &other.finalized_checkpoint(),
+                )?,
+                inactivity_scores: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::inactivity_scores,
+                )?,
+                current_sync_committee: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::current_sync_committee,
+                )?,
+                next_sync_committee: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::next_sync_committee,
+                )?,
+                committee_caches,
+                total_active_balance: TotalActiveBalanceDiff::compute_diff(
+                    orig.total_active_balance(),
+                    other.total_active_balance(),
+                )?,
+            },
+            latest_execution_payload_header: if let Ok(new_payload) =
+                other.latest_execution_payload_header()
+            {
+                Maybe::Just(new_payload.into())
+            } else {
+                Maybe::nothing()
+            },
         })
     }
 
     fn apply_diff(self, target: &mut BeaconState<T>) -> Result<(), Error> {
         let prev_current_epoch = target.current_epoch();
 
-        self.genesis_time.apply_diff(target.genesis_time_mut())?;
-        self.genesis_validators_root
+        self.main
+            .genesis_time
+            .apply_diff(target.genesis_time_mut())?;
+        self.main
+            .genesis_validators_root
             .apply_diff(target.genesis_validators_root_mut())?;
-        self.slot.apply_diff(target.slot_mut())?;
-        self.fork.apply_diff(target.fork_mut())?;
-        self.latest_block_header
+        self.main.slot.apply_diff(target.slot_mut())?;
+        self.main.fork.apply_diff(target.fork_mut())?;
+        self.main
+            .latest_block_header
             .apply_diff(target.latest_block_header_mut())?;
-        self.block_roots.apply_diff(target.block_roots_mut())?;
-        self.state_roots.apply_diff(target.state_roots_mut())?;
-        self.historical_roots
+        self.main.block_roots.apply_diff(target.block_roots_mut())?;
+        self.main.state_roots.apply_diff(target.state_roots_mut())?;
+        self.main
+            .historical_roots
             .apply_diff(target.historical_roots_mut())?;
-        self.eth1_data.apply_diff(target.eth1_data_mut())?;
-        self.eth1_data_votes
+        self.main.eth1_data.apply_diff(target.eth1_data_mut())?;
+        self.main
+            .eth1_data_votes
             .apply_diff(target.eth1_data_votes_mut())?;
-        self.eth1_deposit_index
+        self.main
+            .eth1_deposit_index
             .apply_diff(target.eth1_deposit_index_mut())?;
-        self.validators.apply_diff(target.validators_mut())?;
-        self.balances.apply_diff(target.balances_mut())?;
-        self.randao_mixes.apply_diff(target.randao_mixes_mut())?;
-        self.slashings.apply_diff(target.slashings_mut())?;
+        self.main.validators.apply_diff(target.validators_mut())?;
+        self.main.balances.apply_diff(target.balances_mut())?;
+        self.main
+            .randao_mixes
+            .apply_diff(target.randao_mixes_mut())?;
+        self.main.slashings.apply_diff(target.slashings_mut())?;
         apply_optional_diff(
-            self.previous_epoch_attestations,
+            self.main.previous_epoch_attestations,
             target.previous_epoch_attestations_mut(),
         )?;
         apply_optional_diff(
-            self.current_epoch_attestations,
+            self.main.current_epoch_attestations,
             target.current_epoch_attestations_mut(),
         )?;
         apply_optional_diff(
-            self.previous_epoch_participation,
+            self.main.previous_epoch_participation,
             target.previous_epoch_participation_mut(),
         )?;
         apply_optional_diff(
-            self.current_epoch_participation,
+            self.main.current_epoch_participation,
             target.current_epoch_participation_mut(),
         )?;
-        self.justification_bits
+        self.main
+            .justification_bits
             .apply_diff(target.justification_bits_mut())?;
-        self.previous_justified_checkpoint
+        self.main
+            .previous_justified_checkpoint
             .apply_diff(target.previous_justified_checkpoint_mut())?;
-        self.current_justified_checkpoint
+        self.main
+            .current_justified_checkpoint
             .apply_diff(target.current_justified_checkpoint_mut())?;
-        self.finalized_checkpoint
+        self.main
+            .finalized_checkpoint
             .apply_diff(target.finalized_checkpoint_mut())?;
-        apply_optional_diff(self.inactivity_scores, target.inactivity_scores_mut())?;
+        apply_optional_diff(self.main.inactivity_scores, target.inactivity_scores_mut())?;
         apply_optional_diff(
-            self.current_sync_committee,
+            self.main.current_sync_committee,
             target.current_sync_committee_mut(),
         )?;
-        apply_optional_diff(self.next_sync_committee, target.next_sync_committee_mut())?;
         apply_optional_diff(
-            self.latest_execution_payload_header,
-            target.latest_execution_payload_header_mut(),
+            self.main.next_sync_committee,
+            target.next_sync_committee_mut(),
         )?;
+        if let Maybe::Just(payload_header) = self.latest_execution_payload_header {
+            target
+                .latest_execution_payload_header_mut()?
+                .replace(payload_header)?;
+        }
 
         // Apply committee caches diff.
         let mut committee_caches = (prev_current_epoch, target.committee_caches().clone());
-        self.committee_caches.apply_diff(&mut committee_caches)?;
+        self.main
+            .committee_caches
+            .apply_diff(&mut committee_caches)?;
         *target.committee_caches_mut() = committee_caches.1;
 
         // Apply total active balance diff.
-        self.total_active_balance
+        self.main
+            .total_active_balance
             .apply_diff(target.total_active_balance_mut())?;
 
         Ok(())
