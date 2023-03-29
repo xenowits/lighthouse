@@ -380,7 +380,8 @@ where
     pub next_withdrawal_validator_index: u64,
     // Deep history valid from Capella onwards.
     #[superstruct(only(Capella))]
-    pub historical_summaries: VariableList<HistoricalSummary, T::HistoricalRootsLimit>,
+    #[test_random(default)]
+    pub historical_summaries: VList<HistoricalSummary, T::HistoricalRootsLimit>,
 
     // Caching (not in the spec)
     #[serde(skip_serializing, skip_deserializing)]
@@ -1787,6 +1788,9 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
             Self::Merge(inner) => {
                 map_beacon_state_bellatrix_tree_list_fields!(inner, |_, x| { x.apply_updates() })
             }
+            Self::Capella(inner) => {
+                map_beacon_state_capella_tree_list_fields!(inner, |_, x| { x.apply_updates() })
+            }
         }
         Ok(())
     }
@@ -1833,6 +1837,11 @@ impl<T: EthSpec, GenericValidator: ValidatorTrait> BeaconState<T, GenericValidat
             }
             BeaconState::Merge(state) => {
                 map_beacon_state_bellatrix_fields!(state, |_, field| {
+                    leaves.push(field.tree_hash_root());
+                });
+            }
+            BeaconState::Capella(state) => {
+                map_beacon_state_capella_fields!(state, |_, field| {
                     leaves.push(field.tree_hash_root());
                 });
             }

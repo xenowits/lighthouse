@@ -168,7 +168,10 @@ impl<E: EthSpec> BeaconState<E> {
                     current_sync_committee,
                     next_sync_committee,
                     inactivity_scores,
-                    latest_execution_payload_header
+                    latest_execution_payload_header,
+                    historical_summaries,
+                    next_withdrawal_index,
+                    next_withdrawal_validator_index
                 ]
             ),
         }
@@ -205,6 +208,20 @@ impl<E: EthSpec> CompactBeaconState<E> {
                 inner,
                 Merge,
                 BeaconStateMerge,
+                immutable_validators,
+                [
+                    previous_epoch_participation,
+                    current_epoch_participation,
+                    current_sync_committee,
+                    next_sync_committee,
+                    inactivity_scores,
+                    latest_execution_payload_header
+                ]
+            ),
+            BeaconState::Capella(inner) => compact_to_full!(
+                inner,
+                Capella,
+                BeaconStateCapella,
                 immutable_validators,
                 [
                     previous_epoch_participation,
