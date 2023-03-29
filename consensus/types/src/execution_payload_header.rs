@@ -231,10 +231,15 @@ impl<T: EthSpec> TryFrom<ExecutionPayloadHeader<T>> for ExecutionPayloadHeaderCa
 impl<'a, T: EthSpec> ExecutionPayloadHeaderRefMut<'a, T> {
     /// Mutate through
     pub fn replace(self, header: ExecutionPayloadHeader<T>) -> Result<(), BeaconStateError> {
-        map_execution_payload_header_ref_mut!(&'a _, self, |inner, _| {
-            *inner = header.try_into()?;
-            Ok(())
-        })
+        match self {
+            ExecutionPayloadHeaderRefMut::Merge(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+            ExecutionPayloadHeaderRefMut::Capella(mut_ref) => {
+                *mut_ref = header.try_into()?;
+            }
+        }
+        Ok(())
     }
 }
 

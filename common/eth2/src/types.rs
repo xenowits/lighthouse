@@ -922,6 +922,8 @@ pub struct SseExtendedPayloadAttributesGeneric<T> {
     #[serde(with = "serde_utils::quoted_u64")]
     pub proposer_index: u64,
     pub parent_block_root: Hash256,
+    #[serde(with = "eth2_serde_utils::quoted_u64")]
+    pub parent_block_number: u64,
     pub parent_block_hash: ExecutionBlockHash,
     pub payload_attributes: T,
 }
@@ -959,6 +961,7 @@ impl ForkVersionDeserialize for SseExtendedPayloadAttributes {
             proposal_slot: helper.proposal_slot,
             proposer_index: helper.proposer_index,
             parent_block_root: helper.parent_block_root,
+            parent_block_number: helper.parent_block_number,
             parent_block_hash: helper.parent_block_hash,
             payload_attributes: SsePayloadAttributes::deserialize_by_fork::<D>(
                 helper.payload_attributes,

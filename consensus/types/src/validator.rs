@@ -2,6 +2,7 @@ use crate::{
     test_utils::TestRandom, Address, BeaconState, ChainSpec, Epoch, EthSpec, Hash256,
     PublicKeyBytes,
 };
+use arbitrary::Arbitrary;
 use serde_derive::{Deserialize, Serialize};
 use ssz_derive::{Decode, Encode};
 use std::sync::Arc;
@@ -15,15 +16,7 @@ const NUM_FIELDS: usize = 8;
 ///
 /// Spec v0.12.1
 #[derive(
-    arbitrary::Arbitrary,
-    Debug,
-    Clone,
-    PartialEq,
-    Serialize,
-    Deserialize,
-    Encode,
-    Decode,
-    TestRandom,
+    Arbitrary, Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TestRandom,
 )]
 #[serde(deny_unknown_fields)]
 pub struct Validator {
@@ -33,8 +26,9 @@ pub struct Validator {
 }
 
 /// The mutable fields of a validator.
-#[cfg_attr(feature = "arbitrary-fuzz", derive(arbitrary::Arbitrary))]
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom)]
+#[derive(
+    Debug, Clone, PartialEq, Serialize, Deserialize, Encode, Decode, TreeHash, TestRandom, Arbitrary,
+)]
 pub struct ValidatorMutable {
     pub withdrawal_credentials: Hash256,
     #[serde(with = "serde_utils::quoted_u64")]
@@ -58,6 +52,7 @@ pub trait ValidatorTrait:
     + ssz::Decode
     + TreeHash
     + TestRandom
+    + for<'a> arbitrary::Arbitrary<'a>
 {
 }
 
@@ -191,7 +186,7 @@ impl Validator {
 
     /// Returns `true` if the validator has eth1 withdrawal credential.
     pub fn has_eth1_withdrawal_credential(&self, spec: &ChainSpec) -> bool {
-        self.withdrawal_credentials
+        self.withdrawal_credentials()
             .as_bytes()
             .first()
             .map(|byte| *byte == spec.eth1_address_withdrawal_prefix_byte)
@@ -202,7 +197,7 @@ impl Validator {
     pub fn get_eth1_withdrawal_address(&self, spec: &ChainSpec) -> Option<Address> {
         self.has_eth1_withdrawal_credential(spec)
             .then(|| {
-                self.withdrawal_credentials
+                self.withdrawal_credentials()
                     .as_bytes()
                     .get(12..)
                     .map(Address::from_slice)
@@ -217,18 +212,20 @@ impl Validator {
         let mut bytes = [0u8; 32];
         bytes[0] = spec.eth1_address_withdrawal_prefix_byte;
         bytes[12..].copy_from_slice(execution_address.as_bytes());
-        self.withdrawal_credentials = Hash256::from(bytes);
+        self.mutable.withdrawal_credentials = Hash256::from(bytes);
     }
 
     /// Returns `true` if the validator is fully withdrawable at some epoch.
     pub fn is_fully_withdrawable_at(&self, balance: u64, epoch: Epoch, spec: &ChainSpec) -> bool {
-        self.has_eth1_withdrawal_credential(spec) && self.withdrawable_epoch <= epoch && balance > 0
+        self.has_eth1_withdrawal_credential(spec)
+            && self.withdrawable_epoch() <= epoch
+            && balance > 0
     }
 
     /// Returns `true` if the validator is partially withdrawable.
     pub fn is_partially_withdrawable_validator(&self, balance: u64, spec: &ChainSpec) -> bool {
         self.has_eth1_withdrawal_credential(spec)
-            && self.effective_balance == spec.max_effective_balance
+            && self.effective_balance() == spec.max_effective_balance
             && balance > spec.max_effective_balance
     }
 }

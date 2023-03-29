@@ -155,3 +155,12 @@ impl<T: EthSpec> ForkVersionDeserialize for ExecutionPayload<T> {
         })
     }
 }
+
+impl<T: EthSpec> ExecutionPayload<T> {
+    pub fn fork_name(&self) -> ForkName {
+        match self {
+            ExecutionPayload::Merge(_) => ForkName::Merge,
+            ExecutionPayload::Capella(_) => ForkName::Capella,
+        }
+    }
+}
