@@ -2,7 +2,7 @@ use crate::{
     get_key_for_col, hot_cold_store::HotColdDBError, metrics, DBColumn, Error, HotColdDB,
     ItemStore, KeyValueStore, KeyValueStoreOp,
 };
-use ssz::{Decode, Encode};
+use ssz::Encode;
 use std::io::{Read, Write};
 use types::{beacon_state::BeaconStateDiff, EthSpec, Hash256};
 use zstd::{Decoder, Encoder};
@@ -24,7 +24,7 @@ where
         decoder
             .read_to_end(&mut ssz_bytes)
             .map_err(Error::Compression)?;
-        Ok(BeaconStateDiff::from_ssz_bytes(&ssz_bytes)?)
+        Ok(BeaconStateDiff::from_ssz_bytes(&ssz_bytes, &self.spec)?)
     }
 
     pub fn state_diff_as_bytes(&self, diff: &BeaconStateDiff<E>) -> Result<Vec<u8>, Error> {

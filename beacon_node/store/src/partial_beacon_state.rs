@@ -110,7 +110,7 @@ where
 
     #[ssz(skip_serializing, skip_deserializing)]
     #[superstruct(only(Capella))]
-    pub historical_summaries: Option<VariableList<HistoricalSummary, T::HistoricalRootsLimit>>,
+    pub historical_summaries: Option<VList<HistoricalSummary, T::HistoricalRootsLimit>>,
 }
 
 /// Implement the conversion function from BeaconState -> PartialBeaconState.
@@ -420,7 +420,7 @@ impl<E: EthSpec> PartialBeaconState<E> {
                 Base,
                 BeaconStateBase,
                 memory_validators,
-                [previous_epoch_attestations, current_epoch_attestations]
+                [previous_epoch_attestations, current_epoch_attestations],
                 []
             ),
             PartialBeaconState::Altair(inner) => impl_try_into_beacon_state!(

@@ -3859,23 +3859,10 @@ impl<T: BeaconChainTypes> BeaconChain<T> {
 
         let parent_block_root = forkchoice_update_params.head_root;
 
+        // FIXME(sproul): optimise this for tree-states
         let (unadvanced_state, unadvanced_state_root) =
             if cached_head.head_block_root() == parent_block_root {
                 (Cow::Borrowed(head_state), cached_head.head_state_root())
-            } else if let Some(snapshot) = self
-                .snapshot_cache
-                .try_read_for(BLOCK_PROCESSING_CACHE_LOCK_TIMEOUT)
-                .ok_or(Error::SnapshotCacheLockTimeout)?
-                .get_cloned(parent_block_root, CloneConfig::none())
-            {
-                debug!(
-                    self.log,
-                    "Hit snapshot cache during withdrawals calculation";
-                    "slot" => proposal_slot,
-                    "parent_block_root" => ?parent_block_root,
-                );
-                let state_root = snapshot.beacon_state_root();
-                (Cow::Owned(snapshot.beacon_state), state_root)
             } else {
                 info!(
                     self.log,

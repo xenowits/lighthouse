@@ -18,7 +18,8 @@ use strum::IntoStaticStr;
 use superstruct::superstruct;
 pub use types::{
     Address, EthSpec, ExecutionBlockHash, ExecutionPayload, ExecutionPayloadHeader,
-    ExecutionPayloadRef, ForkName, Hash256, Uint256, VariableList, Withdrawal, Withdrawals,
+    ExecutionPayloadRef, ForkName, Hash256, Transactions, Uint256, VariableList, Withdrawal,
+    Withdrawals,
 };
 use types::{ExecutionPayloadCapella, ExecutionPayloadMerge};
 

@@ -292,7 +292,8 @@ impl DBColumn {
             | Self::BeaconRestorePoint
             | Self::DhtEnrs
             | Self::OptimisticTransitionBlock
-            | Self::BeaconStateDiff => 32,
+            | Self::BeaconStateDiff
+            | Self::BeaconHistoricalSummaries => 32,
             Self::BeaconBlockRoots
             | Self::BeaconStateRoots
             | Self::BeaconHistoricalRoots

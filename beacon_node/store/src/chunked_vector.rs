@@ -387,7 +387,7 @@ field!(
             .map(|fork_epoch| fork_epoch.start_slot(T::slots_per_epoch())),
         deactivation_slot: None,
     },
-    |state: &BeaconState<_>, index, _| safe_modulo_index(
+    |state: &BeaconState<_>, index, _| safe_modulo_index_list(
         state
             .historical_summaries()
             .map_err(|_| ChunkError::InvalidFork)?,

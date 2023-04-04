@@ -1,7 +1,7 @@
 use crate::{
     beacon_state::{CommitteeCache, CACHED_EPOCHS},
-    BeaconBlockHeader, BeaconState, BeaconStateError as Error, BitVector, Checkpoint, Epoch,
-    Eth1Data, EthSpec, ExecutionPayloadHeader, Fork, Hash256, ParticipationFlags,
+    BeaconBlockHeader, BeaconState, BeaconStateError as Error, BitVector, ChainSpec, Checkpoint,
+    Epoch, Eth1Data, EthSpec, ExecutionPayloadHeader, Fork, Hash256, ParticipationFlags,
     PendingAttestation, Slot, SyncCommittee, Validator,
 };
 use milhouse::{CloneDiff, Diff, ListDiff, ResetListDiff, VectorDiff};
@@ -13,21 +13,37 @@ use std::sync::Arc;
 /// `Option`-like type implementing SSZ encode/decode.
 ///
 /// Uses a succinct 1 byte union selector.
-#[derive(Debug, PartialEq, Encode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 #[ssz(enum_behaviour = "union")]
-pub enum Maybe<T: Encode> {
+pub enum Maybe<T: Encode + Decode> {
     Nothing(u8),
     Just(T),
 }
 
-impl<T: Encode> Maybe<T> {
+impl<T: Encode + Decode> Maybe<T> {
+    fn nothing() -> Self {
+        Self::Nothing(0)
+    }
+}
+
+/// Variant of `Maybe` which only implements SSZ Encode, not Decode.
+///
+/// Useful for types like `ExecutionPayloadHeader` which have no internal tag.
+#[derive(Debug, PartialEq, Encode)]
+#[ssz(enum_behaviour = "union")]
+pub enum EncodeMaybe<T: Encode> {
+    Nothing(u8),
+    Just(T),
+}
+
+impl<T: Encode> EncodeMaybe<T> {
     fn nothing() -> Self {
         Self::Nothing(0)
     }
 }
 
 // FIXME(sproul): need the historical accumulator here as well. superstruct?
-#[derive(Debug, PartialEq, Encode)]
+#[derive(Debug, PartialEq, Encode, Decode)]
 pub struct BeaconStateDiffMain<T: EthSpec> {
     // Versioning
     genesis_time: CloneDiff<u64>,
@@ -88,7 +104,36 @@ pub struct BeaconStateDiffMain<T: EthSpec> {
 #[derive(Debug, PartialEq, Encode)]
 pub struct BeaconStateDiff<T: EthSpec> {
     main: BeaconStateDiffMain<T>,
-    latest_execution_payload_header: Maybe<ExecutionPayloadHeader<T>>,
+    latest_execution_payload_header: EncodeMaybe<ExecutionPayloadHeader<T>>,
+}
+
+impl<T: EthSpec> BeaconStateDiff<T> {
+    pub fn from_ssz_bytes(bytes: &[u8], spec: &ChainSpec) -> Result<Self, ssz::DecodeError> {
+        // We need the customer decoder for `ExecutionPayloadHeader`, which doesn't compose with the
+        // other SSZ utils, so we duplicate some parts of `ssz_derive` here.
+        let mut builder = ssz::SszDecoderBuilder::new(bytes);
+
+        builder.register_type::<BeaconStateDiffMain<T>>()?;
+        builder.register_anonymous_variable_length_item()?;
+
+        let mut decoder = builder.build()?;
+
+        let main: BeaconStateDiffMain<T> = decoder.decode_next()?;
+        let latest_execution_payload_header = decoder.decode_next_with(|bytes| {
+            let (selector, rest) = ssz::split_union_bytes(bytes)?;
+            if selector == 0 {
+                Ok(EncodeMaybe::Nothing(0))
+            } else {
+                let fork_at_slot = spec.fork_name_at_slot::<T>(main.slot.0);
+                ExecutionPayloadHeader::from_ssz_bytes(rest, fork_at_slot).map(EncodeMaybe::Just)
+            }
+        })?;
+
+        Ok(Self {
+            main,
+            latest_execution_payload_header,
+        })
+    }
 }
 
 /// Zero to three committee caches which update a `BeaconState`'s stored committee caches.
@@ -365,9 +410,9 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
             latest_execution_payload_header: if let Ok(new_payload) =
                 other.latest_execution_payload_header()
             {
-                Maybe::Just(new_payload.into())
+                EncodeMaybe::Just(new_payload.into())
             } else {
-                Maybe::nothing()
+                EncodeMaybe::nothing()
             },
         })
     }
@@ -441,7 +486,7 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
             self.main.next_sync_committee,
             target.next_sync_committee_mut(),
         )?;
-        if let Maybe::Just(payload_header) = self.latest_execution_payload_header {
+        if let EncodeMaybe::Just(payload_header) = self.latest_execution_payload_header {
             target
                 .latest_execution_payload_header_mut()?
                 .replace(payload_header)?;

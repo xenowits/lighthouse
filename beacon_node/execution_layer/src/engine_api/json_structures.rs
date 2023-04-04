@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use ssz_types::FixedVector;
 use strum::EnumString;
 use superstruct::superstruct;
-use superstruct::superstruct;
 use types::{
     EthSpec, ExecutionBlockHash, ExecutionPayloadCapella, ExecutionPayloadMerge, Transactions,
     Unsigned, VariableList, Withdrawal,
