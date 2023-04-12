@@ -1,5 +1,6 @@
 use crate::{
     beacon_state::{CommitteeCache, CACHED_EPOCHS},
+    historical_summary::HistoricalSummary,
     BeaconBlockHeader, BeaconState, BeaconStateError as Error, BitVector, ChainSpec, Checkpoint,
     Epoch, Eth1Data, EthSpec, ExecutionPayloadHeader, Fork, Hash256, ParticipationFlags,
     PendingAttestation, Slot, SyncCommittee, Validator,
@@ -95,6 +96,11 @@ pub struct BeaconStateDiffMain<T: EthSpec> {
     current_sync_committee: Maybe<CloneDiff<Arc<SyncCommittee<T>>>>,
     next_sync_committee: Maybe<CloneDiff<Arc<SyncCommittee<T>>>>,
 
+    // Capella
+    next_withdrawal_index: Maybe<CloneDiff<u64>>,
+    next_withdrawal_validator_index: Maybe<CloneDiff<u64>>,
+    historical_summaries: Maybe<ListDiff<HistoricalSummary, T::HistoricalRootsLimit>>,
+
     // Committee caches
     committee_caches: CommitteeCachesDiff,
     // Total active balance cache
@@ -164,6 +170,23 @@ fn optional_field_diff<
     if let Ok(new_value) = field(new) {
         let old_value = field(old)?;
         Ok(Maybe::Just(D::compute_diff(old_value, new_value)?))
+    } else {
+        Ok(Maybe::nothing())
+    }
+}
+
+fn optional_copy_field_diff<
+    T: EthSpec,
+    X,
+    D: Diff<Target = X, Error = milhouse::Error> + Encode + Decode,
+>(
+    old: &BeaconState<T>,
+    new: &BeaconState<T>,
+    field: impl Fn(&BeaconState<T>) -> Result<X, Error>,
+) -> Result<Maybe<D>, Error> {
+    if let Ok(new_value) = field(new) {
+        let old_value = field(old)?;
+        Ok(Maybe::Just(D::compute_diff(&old_value, &new_value)?))
     } else {
         Ok(Maybe::nothing())
     }
@@ -401,6 +424,21 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
                     other,
                     BeaconState::next_sync_committee,
                 )?,
+                next_withdrawal_index: optional_copy_field_diff(
+                    orig,
+                    other,
+                    BeaconState::next_withdrawal_index,
+                )?,
+                next_withdrawal_validator_index: optional_copy_field_diff(
+                    orig,
+                    other,
+                    BeaconState::next_withdrawal_validator_index,
+                )?,
+                historical_summaries: optional_field_diff(
+                    orig,
+                    other,
+                    BeaconState::historical_summaries,
+                )?,
                 committee_caches,
                 total_active_balance: TotalActiveBalanceDiff::compute_diff(
                     orig.total_active_balance(),
@@ -491,6 +529,20 @@ impl<T: EthSpec> Diff for BeaconStateDiff<T> {
                 .latest_execution_payload_header_mut()?
                 .replace(payload_header)?;
         }
+
+        // Capella.
+        apply_optional_diff(
+            self.main.next_withdrawal_index,
+            target.next_withdrawal_index_mut(),
+        )?;
+        apply_optional_diff(
+            self.main.next_withdrawal_validator_index,
+            target.next_withdrawal_validator_index_mut(),
+        )?;
+        apply_optional_diff(
+            self.main.historical_summaries,
+            target.historical_summaries_mut(),
+        )?;
 
         // Apply committee caches diff.
         let mut committee_caches = (prev_current_epoch, target.committee_caches().clone());
