@@ -616,7 +616,7 @@ dependencies = [
  "state_processing",
  "store",
  "strum",
- "superstruct 0.7.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tokio",
@@ -2116,7 +2116,7 @@ dependencies = [
  "slog",
  "sloggers",
  "state_processing",
- "superstruct 0.7.0",
+ "superstruct",
  "task_executor",
  "tokio",
  "tree_hash",
@@ -2550,7 +2550,7 @@ dependencies = [
  "ssz_types",
  "state_processing",
  "strum",
- "superstruct 0.6.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tokio",
@@ -4461,7 +4461,7 @@ dependencies = [
  "snap",
  "ssz_types",
  "strum",
- "superstruct 0.7.0",
+ "superstruct",
  "task_executor",
  "tempfile",
  "tiny-keccak",
@@ -4764,9 +4764,11 @@ dependencies = [
 [[package]]
 name = "milhouse"
 version = "0.1.0"
-source = "git+https://github.com/sigp/milhouse?branch=main#373b601b12c5b0038681334716cc671f76aea31c"
+source = "git+https://github.com/sigp/milhouse?branch=main#4035d254ad538dd642fe031fbecfae55d9a4f31d"
 dependencies = [
+ "arbitrary",
  "derivative",
+ "ethereum-types 0.14.1",
  "ethereum_hashing",
  "ethereum_ssz",
  "ethereum_ssz_derive",
@@ -7577,20 +7579,6 @@ checksum = "6bdef32e8150c2a081110b42772ffe7d7c9032b606bc226c8260fd97e0976601"
 
 [[package]]
 name = "superstruct"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "75b9e5728aa1a87141cefd4e7509903fc01fa0dcb108022b1e841a67c5159fc5"
-dependencies = [
- "darling 0.13.4",
- "itertools",
- "proc-macro2",
- "quote",
- "smallvec",
- "syn",
-]
-
-[[package]]
-name = "superstruct"
 version = "0.7.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6f4e1f478a7728f8855d7e620e9a152cf8932c6614f86564c886f9b8141f3201"
@@ -8442,7 +8430,7 @@ dependencies = [
  "smallvec",
  "ssz_types",
  "state_processing",
- "superstruct 0.7.0",
+ "superstruct",
  "swap_or_not_shuffle",
  "tempfile",
  "test_random_derive",
